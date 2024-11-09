@@ -529,9 +529,9 @@ void ZehnderRF::setSpeed(const uint8_t paramSpeed, const uint8_t paramTimer) {
 
     if (timer == 0) {
       // tx_type ref: https://github.com/eelcohn/ZehnderComfoair#transmitter-and-receiver-types
-      pFrame->tx_type = 0x03; // This is the ID of the CO2 RF sensor
-      ESP_LOGW(TAG, "Testing with 0x03");
-      // Don't work: 0x16, 0x18, 0x0B, 0x19
+      pFrame->tx_type = 0x01; // This is the ID of the CO2 RF sensor
+      ESP_LOGW(TAG, "Testing with 0x01");
+      // Don't work: 0x16, 0x18, 0x0B, 0x19, 0x03
       pFrame->command = FAN_FRAME_SETSPEED;
       pFrame->parameter_count = sizeof(RfPayloadFanSetSpeed);
       pFrame->payload.setSpeed.speed = speed;
