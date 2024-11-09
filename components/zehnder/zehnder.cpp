@@ -524,15 +524,18 @@ void ZehnderRF::setSpeed(const uint8_t paramSpeed, const uint8_t paramTimer) {
     pFrame->rx_type = this->config_.fan_main_unit_type;
     pFrame->rx_id = 0x00;  // Broadcast
     // pFrame->tx_type = this->config_.fan_my_device_type;
-    pFrame->tx_type = 0x16; // This is the ID of the remote with 10/30/60/timer off buttons
     pFrame->tx_id = this->config_.fan_my_device_id;
     pFrame->ttl = FAN_TTL;
 
     if (timer == 0) {
+      // tx_type ref: https://github.com/eelcohn/ZehnderComfoair#transmitter-and-receiver-types
+      pFrame->tx_type = 0x18; // This is the ID of the CO2 RF sensor
       pFrame->command = FAN_FRAME_SETSPEED;
       pFrame->parameter_count = sizeof(RfPayloadFanSetSpeed);
       pFrame->payload.setSpeed.speed = speed;
     } else {
+      // tx_type ref: https://github.com/eelcohn/ZehnderComfoair#transmitter-and-receiver-types
+      pFrame->tx_type = 0x16; // This is the ID of the remote with 10/30/60/timer off buttons
       pFrame->command = FAN_FRAME_SETTIMER;
       pFrame->parameter_count = sizeof(RfPayloadFanSetTimer);
       pFrame->payload.setTimer.speed = speed;
