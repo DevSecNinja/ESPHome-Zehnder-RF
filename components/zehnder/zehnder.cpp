@@ -306,8 +306,8 @@ void ZehnderRF::rfHandleReceived(const uint8_t *const pData, const uint8_t dataL
             (void) memset(this->_txFrame, 0, FAN_FRAMESIZE);  // Clear frame data
 
             pTxFrame->rx_type = FAN_TYPE_MAIN_UNIT;  // Set type to main unit
-            pTxFrame->rx_id = pResponse->tx_id;      // Set ID to the ID of the main unit
-            // pTxFrame->rx_id = 0x00;  // Broadcast - this should fix the CO2 sensor overriding the call
+            // pTxFrame->rx_id = pResponse->tx_id;      // Set ID to the ID of the main unit
+            pTxFrame->rx_id = 0x00;  // Broadcast - this should fix the CO2 sensor overriding the call?
             // Per https://github.com/TimelessNL/ESPHome-Zehnder-RF/pull/1 we shouldn't broadcast on link success
             pTxFrame->tx_type = this->config_.fan_my_device_type;
             pTxFrame->tx_id = this->config_.fan_my_device_id;
@@ -528,7 +528,6 @@ void ZehnderRF::setSpeed(const uint8_t paramSpeed, const uint8_t paramTimer) {
     pFrame->ttl = FAN_TTL;
 
     if (timer == 0) {
-      // tx_type ref: https://github.com/eelcohn/ZehnderComfoair#transmitter-and-receiver-types
       // These I have tested and don't work: 0x16, 0x18, 0x0B, 0x19, 0x03, 0x01, 0x00, 0x04, 0x1C
       pFrame->tx_type = FAN_TYPE_CO2_SENSOR;
       pFrame->command = FAN_FRAME_SETSPEED;
