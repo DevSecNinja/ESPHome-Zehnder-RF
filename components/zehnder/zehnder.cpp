@@ -527,7 +527,15 @@ void ZehnderRF::setSpeed(const uint8_t paramSpeed, const uint8_t paramTimer) {
     pFrame->tx_id = this->config_.fan_my_device_id;
     pFrame->ttl = FAN_TTL;
 
-    if (timer == 0) {
+    if (timer == 0 && speed == 0) {
+      // We want to switch to auto by setting both the timer and speed to 0
+      // This mimics the Timer RF 'OFF' command.
+      pFrame->command = FAN_FRAME_SETTIMER;
+      pFrame->parameter_count = sizeof(RfPayloadFanSetTimer);
+      pFrame->payload.setTimer.speed = speed;
+      pFrame->payload.setTimer.timer = timer;
+    }
+    else if (timer == 0) {
       // These I have tested and don't work: 0x16, 0x18, 0x0B, 0x19, 0x03, 0x01, 0x00, 0x04, 0x1C
       pFrame->tx_type = FAN_TYPE_CO2_SENSOR;
       pFrame->command = FAN_FRAME_SETSPEED;
