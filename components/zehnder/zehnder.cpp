@@ -530,14 +530,12 @@ void ZehnderRF::setSpeed(const uint8_t paramSpeed, const uint8_t paramTimer) {
     if (timer == 0) {
       // tx_type ref: https://github.com/eelcohn/ZehnderComfoair#transmitter-and-receiver-types
       // These I have tested and don't work: 0x16, 0x18, 0x0B, 0x19, 0x03, 0x01, 0x00, 0x04, 0x1C
-      pFrame->tx_type = this->config_.fan_my_device_type; // This is the ID of the CO2 RF sensor
-      ESP_LOGW(TAG, "Testing with 0x%02X", this->config_.fan_my_device_type);
+      pFrame->tx_type = FAN_TYPE_CO2_SENSOR
       pFrame->command = FAN_FRAME_SETSPEED;
       pFrame->parameter_count = sizeof(RfPayloadFanSetSpeed);
       pFrame->payload.setSpeed.speed = speed;
     } else {
-      // tx_type ref: https://github.com/eelcohn/ZehnderComfoair#transmitter-and-receiver-types
-      pFrame->tx_type = 0x16; // This is the ID of the remote with 10/30/60/timer off buttons
+      pFrame->tx_type = FAN_TYPE_TIMER_REMOTE_CONTROL;
       pFrame->command = FAN_FRAME_SETTIMER;
       pFrame->parameter_count = sizeof(RfPayloadFanSetTimer);
       pFrame->payload.setTimer.speed = speed;

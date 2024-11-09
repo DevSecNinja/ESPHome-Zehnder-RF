@@ -17,10 +17,12 @@ namespace zehnder {
 #define FAN_REPLY_TIMEOUT 1000  // Wait 500ms for receiving a reply when doing a network scan
 
 /* Fan device types */
+// Ref: https://github.com/eelcohn/ZehnderComfoair#transmitter-and-receiver-types
 enum {
-  FAN_TYPE_BROADCAST = 0x00,       // Broadcast to all devices
-  FAN_TYPE_MAIN_UNIT = 0x01,       // Fans
-  FAN_TYPE_REMOTE_CONTROL = 0x03,  // Remote controls
+  FAN_TYPE_BROADCAST = 0x00,           // Broadcast to all devices
+  FAN_TYPE_MAIN_UNIT = 0x01,           // Fans
+  FAN_TYPE_REMOTE_CONTROL = 0x03,      // Remote controls
+  FAN_TYPE_TIMER_REMOTE_CONTROL = 0x16 // Timer RF remote control. The one with 10/30/60/timer off buttons
   FAN_TYPE_CO2_SENSOR = 0x18
 };  // CO2 sensors
 
