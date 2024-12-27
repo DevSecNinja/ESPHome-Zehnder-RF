@@ -92,6 +92,23 @@ binary_sensor:
     icon: mdi:fan-clock
     lambda: !lambda 'return ${device_id}_ventilation->timer;'
 
+number:
+  - platform: template
+    id: ${device_id}_timer_in_minutes
+    name: "Timer in minutes"
+    optimistic: true
+    min_value: 0
+    max_value: 60
+    initial_value: 0
+    step: 5
+    set_action:
+      then:
+      - lambda: |-
+          ${device_id}_ventilation->setSpeed(4, x);
+      - number.set:
+          id: ${device_id}_timer_in_minutes
+          value: 0
+
 sensor:
   - platform: wifi_signal
     name: "${device_name} RSSI"
