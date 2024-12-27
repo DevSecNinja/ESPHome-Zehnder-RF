@@ -307,7 +307,7 @@ void ZehnderRF::rfHandleReceived(const uint8_t *const pData, const uint8_t dataL
 
             pTxFrame->rx_type = FAN_TYPE_MAIN_UNIT;  // Set type to main unit
             pTxFrame->rx_id = pResponse->tx_id;      // Set ID to the ID of the main unit
-            // pTxFrame->rx_id = 0x00;  // Broadcast - this should fix the CO2 sensor overriding the call
+            // pTxFrame->rx_id = 0x00;  // Broadcast - this should fix the CO2 sensor overriding the call?
             // Per https://github.com/TimelessNL/ESPHome-Zehnder-RF/pull/1 we shouldn't broadcast on link success
             pTxFrame->tx_type = this->config_.fan_my_device_type;
             pTxFrame->tx_id = this->config_.fan_my_device_id;
@@ -524,7 +524,6 @@ void ZehnderRF::setSpeed(const uint8_t paramSpeed, const uint8_t paramTimer) {
     pFrame->rx_type = this->config_.fan_main_unit_type;
     pFrame->rx_id = 0x00;  // Broadcast
     // pFrame->tx_type = this->config_.fan_my_device_type;
-    pFrame->tx_type = 0x16; // This is the ID of the remote with 10/30/60/timer off buttons
     pFrame->tx_id = this->config_.fan_my_device_id;
     pFrame->ttl = FAN_TTL;
 
@@ -537,10 +536,12 @@ void ZehnderRF::setSpeed(const uint8_t paramSpeed, const uint8_t paramTimer) {
       pFrame->payload.setTimer.timer = timer;
     }
     else if (timer == 0) {
+      pFrame->tx_type = FAN_TYPE_CO2_SENSOR;
       pFrame->command = FAN_FRAME_SETSPEED;
       pFrame->parameter_count = sizeof(RfPayloadFanSetSpeed);
       pFrame->payload.setSpeed.speed = speed;
     } else {
+      pFrame->tx_type = FAN_TYPE_TIMER_REMOTE_CONTROL;
       pFrame->command = FAN_FRAME_SETTIMER;
       pFrame->parameter_count = sizeof(RfPayloadFanSetTimer);
       pFrame->payload.setTimer.speed = speed;
