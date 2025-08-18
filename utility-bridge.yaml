@@ -33,6 +33,13 @@ api:
       then:
         - lambda: |-
             id(${device_id}_ventilation).setSpeed(run_speed, run_time);
+    - service: set_voltage
+      variables:
+        voltage: int
+        run_time: int
+      then:
+        - lambda: |-
+            id(${device_id}_ventilation).setVoltage(voltage, run_time);
     - service: set_mode
       variables:
         mode: string
