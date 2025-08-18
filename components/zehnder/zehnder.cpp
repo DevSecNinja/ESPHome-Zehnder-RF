@@ -470,6 +470,8 @@ static uint8_t minmax(const uint8_t value, const uint8_t min, const uint8_t max)
 
 static int clamp_voltage(const int value) {
   // Clamp voltage values to reasonable percentage range (0-100%)
+  // This prevents invalid/corrupted RF data from causing extreme percentage values
+  // in Home Assistant (e.g., ±1.5 billion % as reported in issue #18)
   if (value < 0) {
     ESP_LOGW(TAG, "Invalid voltage value %i clamped to 0", value);
     return 0;
