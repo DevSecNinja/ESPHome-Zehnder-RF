@@ -220,9 +220,13 @@ void ZehnderRF::loop(void) {
 
     case StateIdle:
       if (newSetting == true) {
+        ESP_LOGV(TAG, "Processing queued speed change request");
         this->setSpeed(newSpeed, newTimer);
       } else {
+        // Periodic status query
         if ((millis() - this->lastFanQuery_) > this->interval_) {
+          ESP_LOGV(TAG, "Periodic query interval reached (%ums elapsed, interval: %ums)", 
+                   millis() - this->lastFanQuery_, this->interval_);
           this->queryDevice();
         }
       }
@@ -231,8 +235,11 @@ void ZehnderRF::loop(void) {
     case StateWaitSetSpeedConfirm:
       if (this->rfState_ == RfStateIdle) {
         // When done, return to idle
+        ESP_LOGD(TAG, "Speed change confirmation complete - State transition: %s -> %s", 
+                 getStateName(this->state_), getStateName(StateIdle));
         this->state_ = StateIdle;
       }
+      break;
 
     default:
       break;
@@ -353,77 +360,105 @@ void ZehnderRF::rfHandleReceived(const uint8_t *const pData, const uint8_t dataL
               (pResponse->rx_id == this->config_.fan_main_unit_id) &&
               (pResponse->tx_type == this->config_.fan_main_unit_type) &&
               (pResponse->tx_id == this->config_.fan_main_unit_id)) {
-            ESP_LOGD(TAG, "Discovery: received network join success 0x0D");
+            ESP_LOGI(TAG, "Discovery: Network join successful! Connected to main unit type=0x%02X, id=0x%02X",
+                     pResponse->tx_type, pResponse->tx_id);
 
             this->rfComplete();
 
-            ESP_LOGD(TAG, "Saving pairing config");
+            ESP_LOGI(TAG, "Saving successful pairing configuration to preferences");
             this->pref_.save(&this->config_);
 
+            ESP_LOGD(TAG, "State transition: %s -> %s", getStateName(this->state_), getStateName(StateIdle));
             this->state_ = StateIdle;
           } else {
-            ESP_LOGW(TAG, "Unexpected frame join reponse from Type 0x%02X ID 0x%02X", pResponse->tx_type,
-                     pResponse->tx_id);
+            ESP_LOGW(TAG, "Unexpected join response - wrong device type/ID: rx_type=0x%02X rx_id=0x%02X tx_type=0x%02X tx_id=0x%02X", 
+                     pResponse->rx_type, pResponse->rx_id, pResponse->tx_type, pResponse->tx_id);
           }
           break;
 
         default:
-          ESP_LOGE(TAG, "Discovery: Received unknown frame type 0x%02X from ID 0x%02X on network 0x%08X",
-                   pResponse->command, pResponse->tx_id, this->config_.fan_networkId);
+          ESP_LOGE(TAG, "Discovery: Received unknown frame type 0x%02X from device type=0x%02X id=0x%02X on network 0x%08X",
+                   pResponse->command, pResponse->tx_type, pResponse->tx_id, this->config_.fan_networkId);
           break;
       }
       break;
 
     case StateWaitQueryResponse:
+      ESP_LOGV(TAG, "Processing query response - checking if frame is addressed to us");
       if ((pResponse->rx_type == this->config_.fan_my_device_type) &&  // If type
           (pResponse->rx_id == this->config_.fan_my_device_id)) {      // and id match, it is for us
+        ESP_LOGD(TAG, "Received response addressed to us (type=0x%02X, id=0x%02X)", 
+                 pResponse->rx_type, pResponse->rx_id);
         switch (pResponse->command) {
           case FAN_TYPE_FAN_SETTINGS:
-            ESP_LOGD(TAG, "Received fan settings; speed: 0x%02X voltage: %i timer: %i",
-                     pResponse->payload.fanSettings.speed, pResponse->payload.fanSettings.voltage,
+            ESP_LOGI(TAG, "Fan status received - Speed: %u (%s), Voltage: %dV, Timer: %u min",
+                     pResponse->payload.fanSettings.speed,
+                     pResponse->payload.fanSettings.speed == 0 ? "Auto" :
+                     pResponse->payload.fanSettings.speed == 1 ? "Low" :
+                     pResponse->payload.fanSettings.speed == 2 ? "Medium" :
+                     pResponse->payload.fanSettings.speed == 3 ? "High" :
+                     pResponse->payload.fanSettings.speed == 4 ? "Max" : "Unknown",
+                     pResponse->payload.fanSettings.voltage,
                      pResponse->payload.fanSettings.timer);
 
             this->rfComplete();
 
+            // Update internal state
             this->state = pResponse->payload.fanSettings.speed > 0;
             this->speed = pResponse->payload.fanSettings.speed;
             this->timer = pResponse->payload.fanSettings.timer;
             this->voltage = pResponse->payload.fanSettings.voltage;
+            ESP_LOGD(TAG, "Publishing updated fan state to Home Assistant");
             this->publish_state();
 
+            ESP_LOGD(TAG, "State transition: %s -> %s", getStateName(this->state_), getStateName(StateIdle));
             this->state_ = StateIdle;
             break;
 
           default:
-            ESP_LOGD(TAG, "Received unexpected frame; type 0x%02X from ID 0x%02X", pResponse->command,
-                     pResponse->tx_id);
+            ESP_LOGW(TAG, "Received unexpected command 0x%02X from main unit (type=0x%02X, id=0x%02X)", 
+                     pResponse->command, pResponse->tx_type, pResponse->tx_id);
             break;
         }
       } else {
-        ESP_LOGD(TAG, "Received frame from unknown device; type 0x%02X from ID 0x%02X type 0x%02X", pResponse->command,
-                 pResponse->tx_id, pResponse->tx_type);
+        ESP_LOGV(TAG, "Frame not addressed to us - rx_type=0x%02X (expected 0x%02X), rx_id=0x%02X (expected 0x%02X)", 
+                 pResponse->rx_type, this->config_.fan_my_device_type,
+                 pResponse->rx_id, this->config_.fan_my_device_id);
+        ESP_LOGD(TAG, "Ignoring frame from device type=0x%02X id=0x%02X with command=0x%02X", 
+                 pResponse->tx_type, pResponse->tx_id, pResponse->command);
       }
       break;
 
     case StateWaitSetSpeedResponse:
+      ESP_LOGV(TAG, "Processing set speed response");
       if ((pResponse->rx_type == this->config_.fan_my_device_type) &&  // If type
           (pResponse->rx_id == this->config_.fan_my_device_id)) {      // and id match, it is for us
         switch (pResponse->command) {
           case FAN_TYPE_FAN_SETTINGS:
-            ESP_LOGD(TAG, "Received fan settings; speed: 0x%02X voltage: %i timer: %i",
-                     pResponse->payload.fanSettings.speed, pResponse->payload.fanSettings.voltage,
+            ESP_LOGI(TAG, "Speed change confirmed - New settings: Speed: %u (%s), Voltage: %dV, Timer: %u min",
+                     pResponse->payload.fanSettings.speed,
+                     pResponse->payload.fanSettings.speed == 0 ? "Auto" :
+                     pResponse->payload.fanSettings.speed == 1 ? "Low" :
+                     pResponse->payload.fanSettings.speed == 2 ? "Medium" :
+                     pResponse->payload.fanSettings.speed == 3 ? "High" :
+                     pResponse->payload.fanSettings.speed == 4 ? "Max" : "Unknown",
+                     pResponse->payload.fanSettings.voltage,
                      pResponse->payload.fanSettings.timer);
             // No idea why we need to commit twice, but got it from TimelessNL b4ae8c4
+            ESP_LOGV(TAG, "Completing RF operation (double commit as per protocol requirements)");
             this->rfComplete();
 
             this->rfComplete();
 
+            // Update internal state
             this->state = pResponse->payload.fanSettings.speed > 0;
             this->speed = pResponse->payload.fanSettings.speed;
             this->timer = pResponse->payload.fanSettings.timer;
             this->voltage = pResponse->payload.fanSettings.voltage;
+            ESP_LOGD(TAG, "Publishing updated fan state after speed change");
             this->publish_state();
 
+            ESP_LOGD(TAG, "Preparing acknowledgment frame for speed change");
             (void) memset(this->_txFrame, 0, FAN_FRAMESIZE);  // Clear frame data
 
             pTxFrame->rx_type = this->config_.fan_main_unit_type;  // Set type to main unit
@@ -438,26 +473,28 @@ void ZehnderRF::rfHandleReceived(const uint8_t *const pData, const uint8_t dataL
             pTxFrame->payload.parameters[2] = 0x20;
 
             // Send response frame
+            ESP_LOGD(TAG, "Sending speed change acknowledgment to main unit");
             this->startTransmit(this->_txFrame, -1, NULL);
 
+            ESP_LOGD(TAG, "State transition: %s -> %s", getStateName(this->state_), getStateName(StateWaitSetSpeedConfirm));
             this->state_ = StateWaitSetSpeedConfirm;
             break;
 
           case FAN_FRAME_SETSPEED_REPLY:
           case FAN_FRAME_SETVOLTAGE_REPLY:
+            ESP_LOGV(TAG, "Received acknowledgment frame (0x%02X) - operation completed", pResponse->command);
             // this->rfComplete();
-
             // this->state_ = StateIdle;
             break;
 
           default:
-            ESP_LOGD(TAG, "Received unexpected frame; type 0x%02X from ID 0x%02X", pResponse->command,
-                     pResponse->tx_id);
+            ESP_LOGW(TAG, "Received unexpected command 0x%02X during speed change from device id=0x%02X", 
+                     pResponse->command, pResponse->tx_id);
             break;
         }
       } else {
-        ESP_LOGD(TAG, "Received frame from unknown device; type 0x%02X from ID 0x%02X type 0x%02X", pResponse->command,
-                 pResponse->tx_id, pResponse->tx_type);
+        ESP_LOGV(TAG, "Frame not for us during speed change - from device type=0x%02X id=0x%02X with command=0x%02X", 
+                 pResponse->tx_type, pResponse->tx_id, pResponse->command);
       }
       break;
 

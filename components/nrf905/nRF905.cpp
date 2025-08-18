@@ -117,11 +117,14 @@ void nRF905::loop() {
 
   uint8_t state = this->readStatus() & ((1 << NRF905_STATUS_DR) | (1 << NRF905_STATUS_AM));
   if (lastState != state) {
-    ESP_LOGV(TAG, "State change: 0x%02X -> 0x%02X", lastState, state);
+    ESP_LOGV(TAG, "nRF905 status change: 0x%02X -> 0x%02X (DR=%s, AM=%s)", lastState, state,
+             (state & (1 << NRF905_STATUS_DR)) ? "SET" : "CLEAR",
+             (state & (1 << NRF905_STATUS_AM)) ? "SET" : "CLEAR");
     if (state == ((1 << NRF905_STATUS_DR) | (1 << NRF905_STATUS_AM))) {
       addrMatch = false;
 
       // Read data
+      ESP_LOGD(TAG, "Data ready with address match - reading RX payload");
       this->readRxPayload(buffer, NRF905_MAX_FRAMESIZE);
       ESP_LOGV(TAG, "RX Complete: %s", hexArrayToStr(buffer, NRF905_MAX_FRAMESIZE));
 
@@ -131,6 +134,8 @@ void nRF905::loop() {
     } else if (state == (1 << NRF905_STATUS_DR)) {
       addrMatch = false;
 
+      ESP_LOGD(TAG, "TX transmission complete - switching to next mode: %s",
+               this->nextMode == Receive ? "Receive" : this->nextMode == Idle ? "Idle" : "Unknown");
       // ESP_LOGD(TAG, "TX Ready; retransmits: %u", this->retransmitCounter);
       // if (this->retransmitCounter > 0) {
       //   --this->retransmitCounter;
@@ -143,13 +148,13 @@ void nRF905::loop() {
       // }
     } else if (state == (1 << NRF905_STATUS_AM)) {
       addrMatch = true;
-      ESP_LOGD(TAG, "Addr match");
+      ESP_LOGD(TAG, "Address match detected - valid packet incoming");
 
       // if (onAddrMatch != NULL)
       //   onAddrMatch(this);
     } else if (state == 0 && addrMatch) {
       addrMatch = false;
-      ESP_LOGD(TAG, "Rx Invalid");
+      ESP_LOGW(TAG, "RX Invalid - received packet failed validation after address match");
       // if (onRxInvalid != NULL)
       //   onRxInvalid(this);
     }
@@ -161,25 +166,44 @@ void nRF905::loop() {
 }
 
 void nRF905::setMode(const Mode mode) {
+  const char* modeStr = mode == PowerDown ? "PowerDown" : 
+                        mode == Idle ? "Idle" : 
+                        mode == Receive ? "Receive" : 
+                        mode == Transmit ? "Transmit" : "Unknown";
+  const char* prevModeStr = this->_mode == PowerDown ? "PowerDown" : 
+                           this->_mode == Idle ? "Idle" : 
+                           this->_mode == Receive ? "Receive" : 
+                           this->_mode == Transmit ? "Transmit" : "Unknown";
+  
+  if (mode != this->_mode) {
+    ESP_LOGD(TAG, "Mode change: %s -> %s", prevModeStr, modeStr);
+  }
+  
   // Set power
   switch (mode) {
     case PowerDown:
+      ESP_LOGV(TAG, "Powering down nRF905");
       this->_gpio_pin_pwr->digital_write(false);
       break;
 
     default:
+      if (this->_mode == PowerDown) {
+        ESP_LOGV(TAG, "Powering up nRF905");
+      }
       this->_gpio_pin_pwr->digital_write(true);
       break;
   }
 
-  // Set CE
+  // Set CE (Chip Enable)
   switch (mode) {
     case Receive:  // fall through
     case Transmit:
+      ESP_LOGV(TAG, "Enabling chip (CE=HIGH) for %s mode", modeStr);
       this->_gpio_pin_ce->digital_write(true);
       break;
 
     default:
+      ESP_LOGV(TAG, "Disabling chip (CE=LOW) for %s mode", modeStr);
       this->_gpio_pin_ce->digital_write(false);
       break;
   }
@@ -187,10 +211,14 @@ void nRF905::setMode(const Mode mode) {
   // Enable TX
   switch (mode) {
     case Transmit:
+      ESP_LOGV(TAG, "Enabling transmitter (TXEN=HIGH)");
       this->_gpio_pin_txen->digital_write(true);
       break;
 
     default:
+      if (this->_mode == Transmit) {
+        ESP_LOGV(TAG, "Disabling transmitter (TXEN=LOW)");
+      }
       this->_gpio_pin_txen->digital_write(false);
       break;
   }
