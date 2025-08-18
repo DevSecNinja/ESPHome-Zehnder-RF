@@ -5,6 +5,7 @@
 #include "esphome/core/hal.h"
 #include "esphome/components/spi/spi.h"
 #include "esphome/components/fan/fan_state.h"
+#include "esphome/components/binary_sensor/binary_sensor.h"
 #include "esphome/components/nrf905/nRF905.h"
 
 namespace esphome {
@@ -87,6 +88,9 @@ class ZehnderRF : public Component, public fan::Fan {
 
   void setSpeed(const uint8_t speed, const uint8_t timer = 0);
 
+  // Status sensor support
+  void set_status_sensor(binary_sensor::BinarySensor *status_sensor) { status_sensor_ = status_sensor; }
+
   bool timer;
   int voltage;
 
@@ -101,6 +105,11 @@ class ZehnderRF : public Component, public fan::Fan {
   void rfComplete(void);
   void rfHandler(void);
   void rfHandleReceived(const uint8_t *const pData, const uint8_t dataLength);
+
+  // Status sensor methods
+  void updateCommunicationStatus(bool healthy);
+  void onCommunicationSuccess();
+  void onCommunicationTimeout();
 
   typedef enum {
     StateStartup,
@@ -145,6 +154,12 @@ class ZehnderRF : public Component, public fan::Fan {
   uint8_t newSpeed{0};
   uint8_t newTimer{0};
   bool newSetting{false};
+
+  // Status sensor tracking
+  binary_sensor::BinarySensor *status_sensor_{nullptr};
+  bool communication_healthy_{true};
+  uint32_t last_successful_communication_{0};
+  uint32_t last_timeout_{0};
 
   typedef enum {
     RfStateIdle,            // Idle state

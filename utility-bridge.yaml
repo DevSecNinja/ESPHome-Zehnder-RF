@@ -257,6 +257,11 @@ fan:
     name: "${device_name} Ventilation"
     nrf905: nrf905_rf
     update_interval: "15s"
+    status_sensor:
+      name: "${device_name} Communication Status"
+      id: ${device_id}_communication_status
+      icon: mdi:wifi-check
+      device_class: connectivity
     on_speed_set:
       - sensor.template.publish:
           id: ${device_id}_ventilation_percentage

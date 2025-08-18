@@ -346,6 +346,7 @@ void ZehnderRF::rfHandleReceived(const uint8_t *const pData, const uint8_t dataL
             ESP_LOGD(TAG, "Discovery: received network join success 0x0D");
 
             this->rfComplete();
+            this->onCommunicationSuccess();
 
             ESP_LOGD(TAG, "Saving pairing config");
             this->pref_.save(&this->config_);
@@ -374,6 +375,7 @@ void ZehnderRF::rfHandleReceived(const uint8_t *const pData, const uint8_t dataL
                      pResponse->payload.fanSettings.timer);
 
             this->rfComplete();
+            this->onCommunicationSuccess();
 
             this->state = pResponse->payload.fanSettings.speed > 0;
             this->speed = pResponse->payload.fanSettings.speed;
@@ -405,6 +407,7 @@ void ZehnderRF::rfHandleReceived(const uint8_t *const pData, const uint8_t dataL
                      pResponse->payload.fanSettings.timer);
             // No idea why we need to commit twice, but got it from TimelessNL b4ae8c4
             this->rfComplete();
+            this->onCommunicationSuccess();
 
             this->rfComplete();
 
@@ -550,6 +553,7 @@ void ZehnderRF::setSpeed(const uint8_t paramSpeed, const uint8_t paramTimer) {
 
     this->startTransmit(this->_txFrame, FAN_TX_RETRIES, [this]() {
       ESP_LOGW(TAG, "Set speed timeout");
+      this->onCommunicationTimeout();
       this->state_ = StateIdle;
     });
 
@@ -593,6 +597,7 @@ void ZehnderRF::discoveryStart(const uint8_t deviceId) {
 
   this->startTransmit(this->_txFrame, FAN_TX_RETRIES, [this]() {
     ESP_LOGW(TAG, "Start discovery timeout");
+    this->onCommunicationTimeout();
     this->state_ = StateStartDiscovery;
   });
 
@@ -640,6 +645,7 @@ void ZehnderRF::rfHandler(void) {
       if ((millis() - this->airwayFreeWaitTime_) > 5000) {
         ESP_LOGW(TAG, "Airway too busy, giving up");
         this->rfState_ = RfStateIdle;
+        this->onCommunicationTimeout();
 
         if (this->onReceiveTimeout_ != NULL) {
           this->onReceiveTimeout_();
@@ -669,6 +675,7 @@ void ZehnderRF::rfHandler(void) {
           // Oh oh, ran out of options
 
           ESP_LOGD(TAG, "No messages received, giving up now...");
+          this->onCommunicationTimeout();
           if (this->onReceiveTimeout_ != NULL) {
             this->onReceiveTimeout_();
           }
@@ -682,6 +689,26 @@ void ZehnderRF::rfHandler(void) {
     default:
       break;
   }
+}
+
+void ZehnderRF::updateCommunicationStatus(bool healthy) {
+  if (communication_healthy_ != healthy) {
+    communication_healthy_ = healthy;
+    if (status_sensor_ != nullptr) {
+      status_sensor_->publish_state(healthy);
+    }
+    ESP_LOGD(TAG, "Communication status changed: %s", healthy ? "healthy" : "failed");
+  }
+}
+
+void ZehnderRF::onCommunicationSuccess() {
+  last_successful_communication_ = millis();
+  updateCommunicationStatus(true);
+}
+
+void ZehnderRF::onCommunicationTimeout() {
+  last_timeout_ = millis();
+  updateCommunicationStatus(false);
 }
 
 }  // namespace zehnder
