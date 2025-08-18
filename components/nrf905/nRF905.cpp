@@ -15,58 +15,81 @@ nRF905::nRF905(void) {}
 void nRF905::setup() {
   Config config;
 
-  ESP_LOGD(TAG, "Start nRF905 init");
+  ESP_LOGI(TAG, "Starting nRF905 radio module initialization");
 
+  ESP_LOGD(TAG, "Setting up SPI interface");
   this->spi_setup();
+  
+  ESP_LOGD(TAG, "Configuring GPIO pins");
   if (this->_gpio_pin_am != NULL) {
     this->_gpio_pin_am->setup();
+    ESP_LOGV(TAG, "AM (Address Match) pin configured");
   }
   if (this->_gpio_pin_cd != NULL) {
     this->_gpio_pin_cd->setup();
+    ESP_LOGV(TAG, "CD (Carrier Detect) pin configured");
   }
   this->_gpio_pin_ce->setup();
+  ESP_LOGV(TAG, "CE (Chip Enable) pin configured");
   if (this->_gpio_pin_dr != NULL) {
     this->_gpio_pin_dr->setup();
+    ESP_LOGV(TAG, "DR (Data Ready) pin configured");
   }
   this->_gpio_pin_pwr->setup();
+  ESP_LOGV(TAG, "PWR (Power) pin configured");
   this->_gpio_pin_txen->setup();
+  ESP_LOGV(TAG, "TXEN (TX Enable) pin configured");
 
+  ESP_LOGD(TAG, "Setting initial power mode to PowerDown");
   this->setMode(PowerDown);
 
+  ESP_LOGD(TAG, "Reading initial configuration registers");
   this->readConfigRegisters();
 
+  ESP_LOGD(TAG, "Setting up Zehnder-specific RF configuration");
   this->_config.band = true;
   this->_config.channel = 118;
 
   // CRC 16
   this->_config.crc_enable = true;
   this->_config.crc_bits = 16;
+  ESP_LOGD(TAG, "CRC enabled with 16-bit validation");
 
   // TX power 10
   this->_config.tx_power = 10;
+  ESP_LOGD(TAG, "TX power set to +10dBm");
 
   // RX power normal
   this->_config.rx_power = PowerNormal;
+  ESP_LOGD(TAG, "RX power set to normal");
 
   this->_config.rx_address = 0x89816EA9;  // ZEHNDER_NETWORK_LINK_ID;
   this->_config.rx_address_width = 4;
   this->_config.rx_payload_width = 16;
+  ESP_LOGD(TAG, "RX configured: address=0x%08X, width=%u bytes, payload=%u bytes",
+           this->_config.rx_address, this->_config.rx_address_width, this->_config.rx_payload_width);
 
   this->_config.tx_address_width = 4;
   this->_config.tx_payload_width = 16;
+  ESP_LOGD(TAG, "TX configured: address_width=%u bytes, payload=%u bytes",
+           this->_config.tx_address_width, this->_config.tx_payload_width);
 
   this->_config.xtal_frequency = 16000000;  // defaults for now
   this->_config.clkOutFrequency = ClkOut500000;
   this->_config.clkOutEnable = false;
+  ESP_LOGD(TAG, "Crystal: %u Hz, Clock out: %s", this->_config.xtal_frequency,
+           this->_config.clkOutEnable ? "500kHz" : "disabled");
 
   // Write config back
+  ESP_LOGD(TAG, "Writing configuration to nRF905 registers");
   this->writeConfigRegisters();
   this->writeTxAddress(0x89816EA9);
 
   // Return to idle
+  ESP_LOGD(TAG, "Setting mode to Idle - nRF905 ready for operation");
   this->setMode(Idle);
 
-  ESP_LOGD(TAG, "nRF905 Setup complete");
+  ESP_LOGI(TAG, "nRF905 initialization complete - radio ready for Zehnder communication");
 }
 
 void nRF905::dump_config() {
@@ -528,6 +551,11 @@ bool nRF905::airwayBusy(void) {
 
   if (this->_gpio_pin_cd != NULL) {
     busy = this->_gpio_pin_cd->digital_read() == true;
+    if (busy) {
+      ESP_LOGV(TAG, "Airway busy detected - carrier present on frequency");
+    }
+  } else {
+    ESP_LOGV(TAG, "No CD pin configured - assuming airway free");
   }
 
   return busy;
@@ -535,7 +563,11 @@ bool nRF905::airwayBusy(void) {
 
 void nRF905::startTx(const uint32_t retransmit, const Mode nextMode) {
   bool update = false;
+  ESP_LOGD(TAG, "Starting transmission - retransmit frames: %u, next mode: %s", 
+           retransmit, nextMode == Receive ? "Receive" : nextMode == Idle ? "Idle" : "Unknown");
+  
   if (this->_mode == PowerDown) {
+    ESP_LOGD(TAG, "Radio was powered down, bringing to Idle mode");
     this->setMode(Idle);
     delay(3);  // Delay is needed to the radio has time to power-up and see the standby/TX pins pulse
   }
@@ -553,10 +585,12 @@ void nRF905::startTx(const uint32_t retransmit, const Mode nextMode) {
   update = true;
   // }
   if (update == true) {
+    ESP_LOGV(TAG, "Updating configuration registers for transmission");
     this->writeConfigRegisters();
   }
 
   // Start transmit
+  ESP_LOGD(TAG, "Switching to transmit mode - beginning RF transmission");
   this->setMode(Transmit);
 }
 

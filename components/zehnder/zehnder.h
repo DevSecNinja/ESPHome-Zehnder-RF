@@ -102,6 +102,9 @@ class ZehnderRF : public Component, public fan::Fan {
   void rfHandler(void);
   void rfHandleReceived(const uint8_t *const pData, const uint8_t dataLength);
 
+  // Helper function to get readable state names for logging
+  const char* getStateName(State state);
+
   typedef enum {
     StateStartup,
     StateStartDiscovery,
