@@ -86,6 +86,7 @@ class ZehnderRF : public Component, public fan::Fan {
   float get_setup_priority() const override { return setup_priority::DATA; }
 
   void setSpeed(const uint8_t speed, const uint8_t timer = 0);
+  void setVoltage(const uint8_t voltage, const uint8_t timer = 0);
 
   bool timer;
   int voltage;

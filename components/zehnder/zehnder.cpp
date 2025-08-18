@@ -37,6 +37,10 @@ typedef struct __attribute__((packed)) {
 } RfPayloadFanSetTimer;
 
 typedef struct __attribute__((packed)) {
+  uint8_t voltage;
+} RfPayloadFanSetVoltage;
+
+typedef struct __attribute__((packed)) {
   uint8_t rx_type;          // 0x00 RX Type
   uint8_t rx_id;            // 0x01 RX ID
   uint8_t tx_type;          // 0x02 TX Type
@@ -49,6 +53,7 @@ typedef struct __attribute__((packed)) {
     uint8_t parameters[9];                           // 0x07 - 0x0F Depends on command
     RfPayloadFanSetSpeed setSpeed;                   // Command 0x02
     RfPayloadFanSetTimer setTimer;                   // Command 0x03
+    RfPayloadFanSetVoltage setVoltage;               // Command 0x01
     RfPayloadNetworkJoinRequest networkJoinRequest;  // Command 0x04
     RfPayloadNetworkJoinOpen networkJoinOpen;        // Command 0x06
     RfPayloadFanSettings fanSettings;                // Command 0x07
@@ -435,9 +440,9 @@ void ZehnderRF::rfHandleReceived(const uint8_t *const pData, const uint8_t dataL
 
           case FAN_FRAME_SETSPEED_REPLY:
           case FAN_FRAME_SETVOLTAGE_REPLY:
-            // this->rfComplete();
-
-            // this->state_ = StateIdle;
+            ESP_LOGD(TAG, "Received set speed/voltage reply");
+            this->rfComplete();
+            this->state_ = StateIdle;
             break;
 
           default:
@@ -557,6 +562,61 @@ void ZehnderRF::setSpeed(const uint8_t paramSpeed, const uint8_t paramTimer) {
     this->state_ = StateWaitSetSpeedResponse;
   } else {
     ESP_LOGD(TAG, "Invalid state, I'm trying later again");
+    newSpeed = speed;
+    newTimer = timer;
+    newSetting = true;
+  }
+}
+
+void ZehnderRF::setVoltage(const uint8_t paramVoltage, const uint8_t paramTimer) {
+  RfFrame *const pFrame = (RfFrame *) this->_txFrame;  // frame helper
+  uint8_t voltage = paramVoltage;
+  uint8_t timer = paramTimer;
+
+  // Voltage should be 0-100 (percentage)
+  if (voltage > 100) {
+    ESP_LOGW(TAG, "Requested voltage too high (%u), limiting to 100", voltage);
+    voltage = 100;
+  }
+
+  ESP_LOGD(TAG, "Set voltage: %u%%; Timer %u minutes", voltage, timer);
+
+  if (this->state_ == StateIdle) {
+    (void) memset(this->_txFrame, 0, FAN_FRAMESIZE);  // Clear frame data
+
+    // Build frame
+    pFrame->rx_type = this->config_.fan_main_unit_type;
+    pFrame->rx_id = 0x00;  // Broadcast
+    pFrame->tx_type = FAN_TYPE_CO2_SENSOR;  // Use CO2 sensor type for voltage commands
+    pFrame->tx_id = this->config_.fan_my_device_id;
+    pFrame->ttl = FAN_TTL;
+
+    if (timer == 0) {
+      pFrame->command = FAN_FRAME_SETVOLTAGE;
+      pFrame->parameter_count = sizeof(RfPayloadFanSetVoltage);
+      pFrame->payload.setVoltage.voltage = voltage;
+    } else {
+      // For voltage with timer, we'll use the timer command with voltage conversion
+      // Convert voltage percentage to approximate speed level for timer command
+      uint8_t speed = (voltage == 0) ? 0 : ((voltage <= 30) ? 1 : ((voltage <= 50) ? 2 : ((voltage <= 90) ? 3 : 4)));
+      pFrame->tx_type = FAN_TYPE_TIMER_REMOTE_CONTROL;
+      pFrame->command = FAN_FRAME_SETTIMER;
+      pFrame->parameter_count = sizeof(RfPayloadFanSetTimer);
+      pFrame->payload.setTimer.speed = speed;
+      pFrame->payload.setTimer.timer = timer;
+    }
+
+    this->startTransmit(this->_txFrame, FAN_TX_RETRIES, [this]() {
+      ESP_LOGW(TAG, "Set voltage timeout");
+      this->state_ = StateIdle;
+    });
+
+    newSetting = false;
+    this->state_ = StateWaitSetSpeedResponse;  // Reuse the same state as setSpeed
+  } else {
+    ESP_LOGD(TAG, "Invalid state, I'm trying later again");
+    // Note: We don't have newVoltage variables, so we'll convert to speed for retry
+    uint8_t speed = (voltage == 0) ? 0 : ((voltage <= 30) ? 1 : ((voltage <= 50) ? 2 : ((voltage <= 90) ? 3 : 4)));
     newSpeed = speed;
     newTimer = timer;
     newSetting = true;
