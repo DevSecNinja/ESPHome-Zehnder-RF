@@ -97,6 +97,13 @@ void ZehnderRF::setup() {
     ESP_LOGD(TAG, "Config load ok");
   }
 
+  // Initialize status sensor - start with healthy state
+  this->communication_healthy_ = true;
+  this->last_successful_communication_ = millis();
+  if (this->status_sensor_ != nullptr) {
+    this->status_sensor_->publish_state(true);
+  }
+
   // Set nRF905 config
   nrf905::Config rfConfig;
   rfConfig = this->rf_->getConfig();
@@ -697,7 +704,7 @@ void ZehnderRF::updateCommunicationStatus(bool healthy) {
     if (status_sensor_ != nullptr) {
       status_sensor_->publish_state(healthy);
     }
-    ESP_LOGD(TAG, "Communication status changed: %s", healthy ? "healthy" : "failed");
+    ESP_LOGI(TAG, "Communication status: %s", healthy ? "HEALTHY" : "FAILED");
   }
 }
 
@@ -708,7 +715,12 @@ void ZehnderRF::onCommunicationSuccess() {
 
 void ZehnderRF::onCommunicationTimeout() {
   last_timeout_ = millis();
-  updateCommunicationStatus(false);
+  // Only mark as failed if we haven't had successful communication recently
+  // This prevents temporary glitches from causing false negatives
+  uint32_t time_since_success = millis() - last_successful_communication_;
+  if (time_since_success > 60000) { // 60 seconds grace period
+    updateCommunicationStatus(false);
+  }
 }
 
 }  // namespace zehnder
