@@ -36,7 +36,7 @@ For detailed testing information, see [tests/README.md](tests/README.md).
 
 GitHub Actions automatically runs tests on:
 - All pull requests
-- Pushes to main/develop branches
+- Pushes to main branches
 - Optional compilation tests (add `test-compile` label to PRs)
 
 ## Configuration
@@ -44,3 +44,4 @@ GitHub Actions automatically runs tests on:
 1. Copy `secrets.yaml.example` to `secrets.yaml` and fill in your values
 2. Generate a secure API key: `openssl rand -base64 32`
 3. Modify GPIO pins in the configuration as needed for your setup
+
