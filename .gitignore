@@ -5,5 +5,21 @@
 /secrets.yaml
 
 .build
+build/
 
 **/__pycache__
+*.pyc
+*.pyo
+
+# Test artifacts
+/tests/__pycache__/
+.pytest_cache/
+.coverage
+htmlcov/
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
