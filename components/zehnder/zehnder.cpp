@@ -378,7 +378,7 @@ void ZehnderRF::rfHandleReceived(const uint8_t *const pData, const uint8_t dataL
             this->state = pResponse->payload.fanSettings.speed > 0;
             this->speed = pResponse->payload.fanSettings.speed;
             this->timer = pResponse->payload.fanSettings.timer;
-            this->voltage = pResponse->payload.fanSettings.voltage;
+            this->voltage = clamp_voltage(pResponse->payload.fanSettings.voltage);
             this->publish_state();
 
             this->state_ = StateIdle;
@@ -411,7 +411,7 @@ void ZehnderRF::rfHandleReceived(const uint8_t *const pData, const uint8_t dataL
             this->state = pResponse->payload.fanSettings.speed > 0;
             this->speed = pResponse->payload.fanSettings.speed;
             this->timer = pResponse->payload.fanSettings.timer;
-            this->voltage = pResponse->payload.fanSettings.voltage;
+            this->voltage = clamp_voltage(pResponse->payload.fanSettings.voltage);
             this->publish_state();
 
             (void) memset(this->_txFrame, 0, FAN_FRAMESIZE);  // Clear frame data
@@ -463,6 +463,21 @@ static uint8_t minmax(const uint8_t value, const uint8_t min, const uint8_t max)
     return min;
   } else if (value >= max) {
     return max;
+  } else {
+    return value;
+  }
+}
+
+static int clamp_voltage(const int value) {
+  // Clamp voltage values to reasonable percentage range (0-100%)
+  // This prevents invalid/corrupted RF data from causing extreme percentage values
+  // in Home Assistant (e.g., ±1.5 billion % as reported in issue #18)
+  if (value < 0) {
+    ESP_LOGW(TAG, "Invalid voltage value %i clamped to 0", value);
+    return 0;
+  } else if (value > 100) {
+    ESP_LOGW(TAG, "Invalid voltage value %i clamped to 100", value);
+    return 100;
   } else {
     return value;
   }
