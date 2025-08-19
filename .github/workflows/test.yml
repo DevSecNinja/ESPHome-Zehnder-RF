@@ -68,8 +68,9 @@ jobs:
       uses: actions/cache@v3
       with:
         path: ~/.cache/pip
-        key: ${{ runner.os }}-pip-esphome-compile
+        key: ${{ runner.os }}-pip-esphome-compile-${{ github.run_id }}
         restore-keys: |
+          ${{ runner.os }}-pip-esphome-compile-
           ${{ runner.os }}-pip-
 
     - name: Cache PlatformIO dependencies
@@ -78,8 +79,9 @@ jobs:
         path: |
           ~/.platformio
           .esphome
-        key: ${{ runner.os }}-platformio-${{ hashFiles('test-config.yaml', 'components/**/*.h', 'components/**/*.cpp') }}
+        key: ${{ runner.os }}-platformio-${{ hashFiles('test-config.yaml', 'components/**/*.h', 'components/**/*.cpp') }}-${{ github.run_id }}
         restore-keys: |
+          ${{ runner.os }}-platformio-${{ hashFiles('test-config.yaml', 'components/**/*.h', 'components/**/*.cpp') }}-
           ${{ runner.os }}-platformio-
 
     - name: Install ESPHome
