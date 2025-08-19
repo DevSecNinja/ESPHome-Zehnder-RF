@@ -1,0 +1,115 @@
+name: ESPHome Zehnder RF Tests
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: [3.11, 3.12]
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Set up Python ${{ matrix.python-version }}
+      uses: actions/setup-python@v4
+      with:
+        python-version: ${{ matrix.python-version }}
+
+    - name: Cache pip packages
+      uses: actions/cache@v3
+      with:
+        path: ~/.cache/pip
+        key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements*.txt') }}
+        restore-keys: |
+          ${{ runner.os }}-pip-
+
+    - name: Install ESPHome
+      run: |
+        python -m pip install --upgrade pip
+        pip install esphome
+
+    - name: Verify ESPHome installation
+      run: esphome version
+
+    - name: Run Python syntax validation
+      run: python tests/test_python_syntax.py
+
+    - name: Run ESPHome configuration validation
+      run: python tests/test_esphome_config.py
+
+    - name: Clean up
+      if: always()
+      run: |
+        # Clean up any temporary files
+        rm -f secrets.yaml
+        rm -rf .esphome/
+
+  compile-test:
+    runs-on: ubuntu-latest
+    needs: test
+    if: github.event_name == 'push' || contains(github.event.pull_request.labels.*.name, 'test-compile')
+    timeout-minutes: 90  # Allow up to 90 minutes for compilation
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Set up Python 3.12
+      uses: actions/setup-python@v4
+      with:
+        python-version: 3.12
+
+    - name: Cache pip packages
+      uses: actions/cache@v3
+      with:
+        path: ~/.cache/pip
+        key: ${{ runner.os }}-pip-esphome-compile-${{ github.run_id }}
+        restore-keys: |
+          ${{ runner.os }}-pip-esphome-compile-
+          ${{ runner.os }}-pip-
+
+    - name: Cache PlatformIO dependencies
+      uses: actions/cache@v3
+      with:
+        path: |
+          ~/.platformio
+          .esphome
+        key: ${{ runner.os }}-platformio-${{ hashFiles('test-config.yaml', 'components/**/*.h', 'components/**/*.cpp') }}-${{ github.run_id }}
+        restore-keys: |
+          ${{ runner.os }}-platformio-${{ hashFiles('test-config.yaml', 'components/**/*.h', 'components/**/*.cpp') }}-
+          ${{ runner.os }}-platformio-
+
+    - name: Install ESPHome
+      run: |
+        python -m pip install --upgrade pip
+        pip install esphome
+
+    - name: Create secrets.yaml for compilation
+      run: cp secrets.yaml.example secrets.yaml
+
+    - name: Compile test configuration (with timeout protection)
+      run: |
+        # Set timeout to 80 minutes (slightly less than job timeout)
+        timeout 4800 esphome compile test-config.yaml || {
+          exit_code=$?
+          if [ $exit_code -eq 124 ]; then
+            echo "❌ Compilation timed out after 80 minutes"
+            echo "This may be normal for first-time builds due to dependency downloads"
+            exit 1
+          else
+            echo "❌ Compilation failed with exit code $exit_code"
+            exit $exit_code
+          fi
+        }
+
+    - name: Clean up
+      if: always()
+      run: |
+        rm -f secrets.yaml
+        # Keep cache but clean temporary files
+        rm -rf build/
