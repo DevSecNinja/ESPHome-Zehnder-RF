@@ -16,6 +16,7 @@ esp32:
 
 # Enable logging
 logger:
+  id: component_logger
   level: INFO
 
 preferences:
@@ -54,6 +55,29 @@ api:
               id(${device_id}_ventilation).setSpeed(4, 60);
             } else {
               ESP_LOGW("zehnder", "Unknown mode %s", mode);
+            }
+    - service: set_log_level
+      variables:
+        level: string
+      then:
+        - lambda: |-
+            if (level == "VERBOSE") {
+              id(component_logger)->set_global_log_level(esphome::ESPHOME_LOG_LEVEL_VERY_VERBOSE);
+              ESP_LOGI("main", "Log level set to VERBOSE");
+            } else if (level == "DEBUG") {
+              id(component_logger)->set_global_log_level(esphome::ESPHOME_LOG_LEVEL_DEBUG);
+              ESP_LOGI("main", "Log level set to DEBUG");
+            } else if (level == "INFO") {
+              id(component_logger)->set_global_log_level(esphome::ESPHOME_LOG_LEVEL_INFO);
+              ESP_LOGI("main", "Log level set to INFO");
+            } else if (level == "WARN") {
+              id(component_logger)->set_global_log_level(esphome::ESPHOME_LOG_LEVEL_WARN);
+              ESP_LOGI("main", "Log level set to WARN");
+            } else if (level == "ERROR") {
+              id(component_logger)->set_global_log_level(esphome::ESPHOME_LOG_LEVEL_ERROR);
+              ESP_LOGI("main", "Log level set to ERROR");
+            } else {
+              ESP_LOGW("main", "Unknown log level: %s. Valid levels: VERBOSE, DEBUG, INFO, WARN, ERROR", level.c_str());
             }
 
 ota:

@@ -394,7 +394,7 @@ void ZehnderRF::rfHandleReceived(const uint8_t *const pData, const uint8_t dataL
                  pResponse->rx_type, pResponse->rx_id);
         switch (pResponse->command) {
           case FAN_TYPE_FAN_SETTINGS:
-            ESP_LOGI(TAG, "Fan status received - Speed: %u (%s), Voltage: %dV, Timer: %u min",
+            ESP_LOGI(TAG, "Fan status received - Speed: %u (%s), Voltage: %d%%, Timer: %u min",
                      pResponse->payload.fanSettings.speed,
                      pResponse->payload.fanSettings.speed == 0 ? "Auto" :
                      pResponse->payload.fanSettings.speed == 1 ? "Low" :
@@ -605,6 +605,7 @@ void ZehnderRF::setSpeed(const uint8_t paramSpeed, const uint8_t paramTimer) {
       pFrame->parameter_count = sizeof(RfPayloadFanSetTimer);
       pFrame->payload.setTimer.speed = speed;
       pFrame->payload.setTimer.timer = timer;
+      ESP_LOGD(TAG, "Command payload: speed=%u, timer=%u", pFrame->payload.setTimer.speed, pFrame->payload.setTimer.timer);
     }
     else if (timer == 0) {
       ESP_LOGD(TAG, "Creating speed-only command (FAN_FRAME_SETSPEED) as CO2 sensor type");
@@ -612,6 +613,7 @@ void ZehnderRF::setSpeed(const uint8_t paramSpeed, const uint8_t paramTimer) {
       pFrame->command = FAN_FRAME_SETSPEED;
       pFrame->parameter_count = sizeof(RfPayloadFanSetSpeed);
       pFrame->payload.setSpeed.speed = speed;
+      ESP_LOGD(TAG, "Command payload: speed=%u", pFrame->payload.setSpeed.speed);
     } else {
       ESP_LOGD(TAG, "Creating timed speed command (FAN_FRAME_SETTIMER) as timer remote type");
       pFrame->tx_type = FAN_TYPE_TIMER_REMOTE_CONTROL;
@@ -619,6 +621,7 @@ void ZehnderRF::setSpeed(const uint8_t paramSpeed, const uint8_t paramTimer) {
       pFrame->parameter_count = sizeof(RfPayloadFanSetTimer);
       pFrame->payload.setTimer.speed = speed;
       pFrame->payload.setTimer.timer = timer;
+      ESP_LOGD(TAG, "Command payload: speed=%u, timer=%u", pFrame->payload.setTimer.speed, pFrame->payload.setTimer.timer);
     }
 
     this->startTransmit(this->_txFrame, FAN_TX_RETRIES, [this]() {
