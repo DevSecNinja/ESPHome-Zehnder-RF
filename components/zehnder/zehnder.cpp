@@ -593,15 +593,16 @@ void ZehnderRF::setVoltage(const uint8_t paramVoltage, const uint8_t paramTimer)
       // We want to switch to auto by setting both the timer and voltage to 0
       // This mimics the Timer RF 'OFF' command.
       pFrame->rx_id = 0x00;  // Broadcast for auto mode
+      pFrame->tx_type = FAN_TYPE_TIMER_REMOTE_CONTROL;
       pFrame->command = FAN_FRAME_SETTIMER;
       pFrame->parameter_count = sizeof(RfPayloadFanSetTimer);
       pFrame->payload.setTimer.speed = 0;
       pFrame->payload.setTimer.timer = 0;
     }
     else if (timer == 0) {
-      // Direct voltage command - address to main unit, not broadcast
-      pFrame->rx_id = this->config_.fan_main_unit_id;
-      pFrame->tx_type = FAN_TYPE_CO2_SENSOR;
+      // Direct voltage command - use broadcast addressing as per Eelcohn's reference implementation
+      pFrame->rx_id = 0x00;  // Broadcast to all fans (per protocol specification)
+      pFrame->tx_type = this->config_.fan_my_device_type;  // Use configured device type
       pFrame->command = FAN_FRAME_SETVOLTAGE;
       pFrame->parameter_count = sizeof(RfPayloadFanSetVoltage);
       pFrame->payload.setVoltage.voltage = voltage;
