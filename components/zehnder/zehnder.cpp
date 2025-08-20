@@ -56,6 +56,31 @@ typedef struct __attribute__((packed)) {
   } payload;
 } RfFrame;
 
+static uint8_t minmax(const uint8_t value, const uint8_t min, const uint8_t max) {
+  if (value <= min) {
+    return min;
+  } else if (value >= max) {
+    return max;
+  } else {
+    return value;
+  }
+}
+
+static int clamp_voltage(const int value) {
+  // Clamp voltage values to reasonable percentage range (0-100%)
+  // This prevents invalid/corrupted RF data from causing extreme percentage values
+  // in Home Assistant (e.g., ±1.5 billion % as reported in issue #18)
+  if (value < 0) {
+    ESP_LOGW(TAG, "Invalid voltage value %i clamped to 0", value);
+    return 0;
+  } else if (value > 100) {
+    ESP_LOGW(TAG, "Invalid voltage value %i clamped to 100", value);
+    return 100;
+  } else {
+    return value;
+  }
+}
+
 ZehnderRF::ZehnderRF(void) {}
 
 fan::FanTraits ZehnderRF::get_traits() { return fan::FanTraits(false, true, false, this->speed_count_); }
@@ -455,31 +480,6 @@ void ZehnderRF::rfHandleReceived(const uint8_t *const pData, const uint8_t dataL
       ESP_LOGD(TAG, "Received frame from unknown device in unknown state; type 0x%02X from ID 0x%02X type 0x%02X",
                pResponse->command, pResponse->tx_id, pResponse->tx_type);
       break;
-  }
-}
-
-static uint8_t minmax(const uint8_t value, const uint8_t min, const uint8_t max) {
-  if (value <= min) {
-    return min;
-  } else if (value >= max) {
-    return max;
-  } else {
-    return value;
-  }
-}
-
-static int clamp_voltage(const int value) {
-  // Clamp voltage values to reasonable percentage range (0-100%)
-  // This prevents invalid/corrupted RF data from causing extreme percentage values
-  // in Home Assistant (e.g., ±1.5 billion % as reported in issue #18)
-  if (value < 0) {
-    ESP_LOGW(TAG, "Invalid voltage value %i clamped to 0", value);
-    return 0;
-  } else if (value > 100) {
-    ESP_LOGW(TAG, "Invalid voltage value %i clamped to 100", value);
-    return 100;
-  } else {
-    return value;
   }
 }
 
