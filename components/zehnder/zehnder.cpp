@@ -571,7 +571,6 @@ void ZehnderRF::setSpeed(const uint8_t paramSpeed, const uint8_t paramTimer) {
 void ZehnderRF::setVoltage(const uint8_t paramVoltage, const uint8_t paramTimer) {
   RfFrame *const pFrame = (RfFrame *) this->_txFrame;  // frame helper
   uint8_t voltage = paramVoltage;
-  uint8_t timer = paramTimer;
 
   // Voltage should be 0-100 (percentage)
   if (voltage > 100) {
@@ -579,43 +578,27 @@ void ZehnderRF::setVoltage(const uint8_t paramVoltage, const uint8_t paramTimer)
     voltage = 100;
   }
 
-  ESP_LOGD(TAG, "Set voltage: %u%%; Timer %u minutes", voltage, timer);
+  // Note: Timer parameter is ignored for voltage commands as per Zehnder protocol specification
+  // The protocol only supports timer with speed presets (setSpeed), not with voltage values
+  if (paramTimer != 0) {
+    ESP_LOGW(TAG, "Timer parameter (%u) ignored - voltage commands don't support timer. Use setSpeed() for timed operation.", paramTimer);
+  }
+
+  ESP_LOGD(TAG, "Set voltage: %u%%", voltage);
 
   if (this->state_ == StateIdle) {
     (void) memset(this->_txFrame, 0, FAN_FRAMESIZE);  // Clear frame data
 
     // Build frame based on Eelcohn's working implementation
-    // Key insight: voltage commands must use rx_type = FAN_TYPE_MAIN_UNIT (0x01), not the discovered main unit type
+    // Always send voltage command (0x01) - no timer functionality for voltage commands
     pFrame->rx_type = FAN_TYPE_MAIN_UNIT;  // Always 0x01 for voltage commands per protocol spec
     pFrame->rx_id = 0x00;  // Always broadcast to all fans of main unit type
     pFrame->tx_type = this->config_.fan_my_device_type;
     pFrame->tx_id = this->config_.fan_my_device_id;
     pFrame->ttl = FAN_TTL;
-
-    if (timer == 0 && voltage == 0) {
-      // We want to switch to auto by setting both the timer and voltage to 0
-      // This mimics the Timer RF 'OFF' command.
-      pFrame->tx_type = FAN_TYPE_TIMER_REMOTE_CONTROL;
-      pFrame->command = FAN_FRAME_SETTIMER;
-      pFrame->parameter_count = sizeof(RfPayloadFanSetTimer);
-      pFrame->payload.setTimer.speed = 0;
-      pFrame->payload.setTimer.timer = 0;
-    }
-    else if (timer == 0) {
-      // Direct voltage command - use Eelcohn's exact addressing pattern
-      pFrame->command = FAN_FRAME_SETVOLTAGE;
-      pFrame->parameter_count = sizeof(RfPayloadFanSetVoltage);
-      pFrame->payload.setVoltage.voltage = voltage;
-    } else {
-      // For voltage with timer, we'll use the timer command with voltage conversion
-      // Convert voltage percentage to approximate speed level for timer command
-      uint8_t speed = (voltage == 0) ? 0 : ((voltage <= 30) ? 1 : ((voltage <= 50) ? 2 : ((voltage <= 90) ? 3 : 4)));
-      pFrame->tx_type = FAN_TYPE_TIMER_REMOTE_CONTROL;
-      pFrame->command = FAN_FRAME_SETTIMER;
-      pFrame->parameter_count = sizeof(RfPayloadFanSetTimer);
-      pFrame->payload.setTimer.speed = speed;
-      pFrame->payload.setTimer.timer = timer;
-    }
+    pFrame->command = FAN_FRAME_SETVOLTAGE;
+    pFrame->parameter_count = sizeof(RfPayloadFanSetVoltage);
+    pFrame->payload.setVoltage.voltage = voltage;
 
     this->startTransmit(this->_txFrame, FAN_TX_RETRIES, [this]() {
       ESP_LOGW(TAG, "Set voltage timeout");
@@ -626,10 +609,10 @@ void ZehnderRF::setVoltage(const uint8_t paramVoltage, const uint8_t paramTimer)
     this->state_ = StateWaitSetSpeedResponse;  // Reuse the same state as setSpeed
   } else {
     ESP_LOGD(TAG, "Invalid state, I'm trying later again");
-    // Note: We don't have newVoltage variables, so we'll convert to speed for retry
+    // For retry, we'll convert voltage to speed since we don't have voltage retry variables
     uint8_t speed = (voltage == 0) ? 0 : ((voltage <= 30) ? 1 : ((voltage <= 50) ? 2 : ((voltage <= 90) ? 3 : 4)));
     newSpeed = speed;
-    newTimer = timer;
+    newTimer = 0;  // No timer for voltage commands
     newSetting = true;
   }
 }

@@ -14,9 +14,9 @@ Set fan speed using preset levels (0-4):
 ### `setVoltage(voltage, timer)` 
 Set fan speed using voltage percentage (0-100%):
 - `voltage`: Percentage of maximum fan voltage (0-100%)
-- `timer`: Optional timer in minutes (0 = no timer)
+- `timer`: **Note: Timer parameter is ignored** - the Zehnder protocol doesn't support timer functionality with voltage commands
 
-This function is useful for CO2 sensors that send voltage-based speed commands rather than preset levels.
+This function is useful for CO2 sensors that send voltage-based speed commands rather than preset levels. For timed operation with voltage control, use external automation/timers to call `setVoltage(0)` after the desired duration.
 
 ## Fork notes
 
