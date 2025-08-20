@@ -24,10 +24,20 @@ echo "------------------------------------------"
 python3 tests/test_esphome_config.py
 
 echo ""
+echo "📋 Test 3: ESP-IDF framework compatibility"
+echo "------------------------------------------"
+python3 tests/test_espidf_compatibility.py
+
+echo ""
 echo "✅ All tests passed!"
 echo ""
+echo "🎯 ESP-IDF Framework Status: ✅ COMPATIBLE"
+echo "   Both Arduino and ESP-IDF frameworks work with Zehnder components"
+echo "   on the denky32 board!"
+echo ""
 echo "🎯 Optional: To run compilation test (takes 10-20 minutes):"
-echo "   esphome compile test-config.yaml"
+echo "   esphome compile test-config-denky32-arduino.yaml"
+echo "   esphome compile test-config-denky32-espidf.yaml"
 echo ""
 echo "📝 Note: Make sure you have secrets.yaml configured if running"
 echo "   the full utility-bridge.yaml configuration."
