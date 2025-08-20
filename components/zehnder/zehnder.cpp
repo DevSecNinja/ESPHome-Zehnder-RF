@@ -584,14 +584,24 @@ void ZehnderRF::setVoltage(const uint8_t paramVoltage, const uint8_t paramTimer)
   if (this->state_ == StateIdle) {
     (void) memset(this->_txFrame, 0, FAN_FRAMESIZE);  // Clear frame data
 
-    // Build frame
+    // Build frame - follow the same addressing pattern as setSpeed
     pFrame->rx_type = this->config_.fan_main_unit_type;
-    pFrame->rx_id = 0x00;  // Broadcast
-    pFrame->tx_type = FAN_TYPE_CO2_SENSOR;  // Use CO2 sensor type for voltage commands
     pFrame->tx_id = this->config_.fan_my_device_id;
     pFrame->ttl = FAN_TTL;
 
-    if (timer == 0) {
+    if (timer == 0 && voltage == 0) {
+      // We want to switch to auto by setting both the timer and voltage to 0
+      // This mimics the Timer RF 'OFF' command.
+      pFrame->rx_id = 0x00;  // Broadcast for auto mode
+      pFrame->command = FAN_FRAME_SETTIMER;
+      pFrame->parameter_count = sizeof(RfPayloadFanSetTimer);
+      pFrame->payload.setTimer.speed = 0;
+      pFrame->payload.setTimer.timer = 0;
+    }
+    else if (timer == 0) {
+      // Direct voltage command - address to main unit, not broadcast
+      pFrame->rx_id = this->config_.fan_main_unit_id;
+      pFrame->tx_type = FAN_TYPE_CO2_SENSOR;
       pFrame->command = FAN_FRAME_SETVOLTAGE;
       pFrame->parameter_count = sizeof(RfPayloadFanSetVoltage);
       pFrame->payload.setVoltage.voltage = voltage;
@@ -599,6 +609,7 @@ void ZehnderRF::setVoltage(const uint8_t paramVoltage, const uint8_t paramTimer)
       // For voltage with timer, we'll use the timer command with voltage conversion
       // Convert voltage percentage to approximate speed level for timer command
       uint8_t speed = (voltage == 0) ? 0 : ((voltage <= 30) ? 1 : ((voltage <= 50) ? 2 : ((voltage <= 90) ? 3 : 4)));
+      pFrame->rx_id = 0x00;  // Broadcast for timer commands
       pFrame->tx_type = FAN_TYPE_TIMER_REMOTE_CONTROL;
       pFrame->command = FAN_FRAME_SETTIMER;
       pFrame->parameter_count = sizeof(RfPayloadFanSetTimer);
