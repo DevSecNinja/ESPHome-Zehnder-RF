@@ -9,6 +9,9 @@ namespace zehnder {
 
 static const char *const TAG = "zehnder";
 
+// Forward declaration
+static int clamp_voltage(const int value);
+
 typedef struct __attribute__((packed)) {
   uint32_t networkId;
 } RfPayloadNetworkJoinOpen;
