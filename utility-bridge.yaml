@@ -16,7 +16,7 @@ esp32:
 
 # Enable logging
 logger:
-  level: INFO
+  id: component_logger
 
 preferences:
   flash_write_interval: 1d

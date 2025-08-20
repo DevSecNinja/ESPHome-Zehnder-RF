@@ -91,17 +91,7 @@ class ZehnderRF : public Component, public fan::Fan {
   int voltage;
 
  protected:
-  void queryDevice(void);
-
-  uint8_t createDeviceID(void);
-  void discoveryStart(const uint8_t deviceId);
-
-  Result startTransmit(const uint8_t *const pData, const int8_t rxRetries = -1,
-                       const std::function<void(void)> callback = NULL);
-  void rfComplete(void);
-  void rfHandler(void);
-  void rfHandleReceived(const uint8_t *const pData, const uint8_t dataLength);
-
+  // State enum definition - needs to be before getStateName declaration
   typedef enum {
     StateStartup,
     StateStartDiscovery,
@@ -116,6 +106,20 @@ class ZehnderRF : public Component, public fan::Fan {
 
     StateNrOf  // Keep last
   } State;
+
+  void queryDevice(void);
+
+  uint8_t createDeviceID(void);
+  void discoveryStart(const uint8_t deviceId);
+
+  Result startTransmit(const uint8_t *const pData, const int8_t rxRetries = -1,
+                       const std::function<void(void)> callback = NULL);
+  void rfComplete(void);
+  void rfHandler(void);
+  void rfHandleReceived(const uint8_t *const pData, const uint8_t dataLength);
+
+  // Helper function to get readable state names for logging
+  const char* getStateName(State state);
   State state_{StateStartup};
   int speed_count_{};
 
