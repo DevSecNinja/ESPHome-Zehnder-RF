@@ -584,15 +584,17 @@ void ZehnderRF::setVoltage(const uint8_t paramVoltage, const uint8_t paramTimer)
   if (this->state_ == StateIdle) {
     (void) memset(this->_txFrame, 0, FAN_FRAMESIZE);  // Clear frame data
 
-    // Build frame - follow the same addressing pattern as setSpeed
-    pFrame->rx_type = this->config_.fan_main_unit_type;
+    // Build frame based on Eelcohn's working implementation
+    // Key insight: voltage commands must use rx_type = FAN_TYPE_MAIN_UNIT (0x01), not the discovered main unit type
+    pFrame->rx_type = FAN_TYPE_MAIN_UNIT;  // Always 0x01 for voltage commands per protocol spec
+    pFrame->rx_id = 0x00;  // Always broadcast to all fans of main unit type
+    pFrame->tx_type = this->config_.fan_my_device_type;
     pFrame->tx_id = this->config_.fan_my_device_id;
     pFrame->ttl = FAN_TTL;
 
     if (timer == 0 && voltage == 0) {
       // We want to switch to auto by setting both the timer and voltage to 0
       // This mimics the Timer RF 'OFF' command.
-      pFrame->rx_id = 0x00;  // Broadcast for auto mode
       pFrame->tx_type = FAN_TYPE_TIMER_REMOTE_CONTROL;
       pFrame->command = FAN_FRAME_SETTIMER;
       pFrame->parameter_count = sizeof(RfPayloadFanSetTimer);
@@ -600,9 +602,7 @@ void ZehnderRF::setVoltage(const uint8_t paramVoltage, const uint8_t paramTimer)
       pFrame->payload.setTimer.timer = 0;
     }
     else if (timer == 0) {
-      // Direct voltage command - use broadcast addressing as per Eelcohn's reference implementation
-      pFrame->rx_id = 0x00;  // Broadcast to all fans (per protocol specification)
-      pFrame->tx_type = this->config_.fan_my_device_type;  // Use configured device type
+      // Direct voltage command - use Eelcohn's exact addressing pattern
       pFrame->command = FAN_FRAME_SETVOLTAGE;
       pFrame->parameter_count = sizeof(RfPayloadFanSetVoltage);
       pFrame->payload.setVoltage.voltage = voltage;
@@ -610,7 +610,6 @@ void ZehnderRF::setVoltage(const uint8_t paramVoltage, const uint8_t paramTimer)
       // For voltage with timer, we'll use the timer command with voltage conversion
       // Convert voltage percentage to approximate speed level for timer command
       uint8_t speed = (voltage == 0) ? 0 : ((voltage <= 30) ? 1 : ((voltage <= 50) ? 2 : ((voltage <= 90) ? 3 : 4)));
-      pFrame->rx_id = 0x00;  // Broadcast for timer commands
       pFrame->tx_type = FAN_TYPE_TIMER_REMOTE_CONTROL;
       pFrame->command = FAN_FRAME_SETTIMER;
       pFrame->parameter_count = sizeof(RfPayloadFanSetTimer);
