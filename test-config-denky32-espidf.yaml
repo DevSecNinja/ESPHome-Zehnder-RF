@@ -1,0 +1,81 @@
+# Test configuration for ESP-IDF framework on denky32 board
+# This tests the esp-idf framework compatibility with Zehnder components
+
+substitutions:
+  hostname: zehnder-espidf-test
+  device_name: Zehnder ESP-IDF Test
+  device_id: zehnder_espidf_test
+
+esphome:
+  name: ${hostname}
+  comment: ${device_name}
+
+esp32:
+  board: denky32
+  framework:
+    type: esp-idf
+
+# Enable logging
+logger:
+  level: INFO
+
+preferences:
+  flash_write_interval: 1d
+
+# Enable Home Assistant API
+api:
+  encryption:
+    key: !secret "zehnder_comfofan_api_key"
+
+ota:
+- platform: esphome
+  password: !secret "zehnder_comfofan_ota_password"
+
+wifi:
+  ssid: !secret "zehnder_comfofan_wifi_ssid"
+  password: !secret "zehnder_comfofan_wifi_password"
+  fast_connect: true
+
+  # Enable fallback hotspot (captive portal) in case Wifi connection fails
+  ap:
+    ssid: "${device_name} hotspot"
+    password: !secret "zehnder_comfofan_ap_password"
+
+captive_portal:
+
+web_server:
+  port: 80
+  local: true
+  auth:
+    username: admin
+    password: !secret "zehnder_comfofan_web_password"
+
+# Load local components for testing
+external_components:
+  - source: components
+    components: [ nrf905, zehnder ]
+
+# SPI
+spi:
+  clk_pin: GPIO14
+  mosi_pin: GPIO13
+  miso_pin: GPIO12
+
+# nRF905 config
+nrf905:
+  id: "nrf905_rf"
+  cs_pin: GPIO15
+  cd_pin: GPIO33
+  ce_pin: GPIO27
+  pwr_pin: GPIO26
+  txen_pin: GPIO25
+  am_pin: GPIO32
+  dr_pin: GPIO35
+
+# The FAN controller
+fan:
+  - platform: zehnder
+    id: ${device_id}_ventilation
+    name: "${device_name} Ventilation"
+    nrf905: nrf905_rf
+    update_interval: "15s"

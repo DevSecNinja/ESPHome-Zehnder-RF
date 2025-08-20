@@ -13,6 +13,14 @@ esp32:
   board: esp32doit-devkit-v1
   framework:
     type: arduino
+    # esp-idf provides better performance and is now compatible!
+    # To use esp-idf instead of arduino, change to:
+    # type: esp-idf
+    
+    # For denky32 board with esp-idf, use:
+    # board: denky32
+    # framework:
+    #   type: esp-idf
 
 # Enable logging
 logger:
