@@ -87,6 +87,7 @@ class ZehnderRF : public Component, public fan::Fan {
 
   void setSpeed(const uint8_t speed, const uint8_t timer = 0);
   void setVoltage(const uint8_t voltage, const uint8_t timer = 0);
+  void resetToAutoMode();
 
   bool timer;
   int voltage;

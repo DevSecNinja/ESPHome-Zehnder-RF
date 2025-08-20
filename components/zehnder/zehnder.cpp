@@ -617,6 +617,15 @@ void ZehnderRF::setVoltage(const uint8_t paramVoltage, const uint8_t paramTimer)
   }
 }
 
+void ZehnderRF::resetToAutoMode() {
+  ESP_LOGD(TAG, "Resetting to auto CO2 mode to prevent sensor override");
+  
+  // Send timer command with speed=MAX and timer=0 to reset CO2 sensor control
+  // This tells the CO2 sensor that manual control is finished and it can take over again
+  // Based on Eelcohn's solution from GitHub issue #16
+  this->setSpeed(FAN_SPEED_MAX, 0);
+}
+
 void ZehnderRF::discoveryStart(const uint8_t deviceId) {
   RfFrame *const pFrame = (RfFrame *) this->_txFrame;  // frame helper
   nrf905::Config rfConfig;
