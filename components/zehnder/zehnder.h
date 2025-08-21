@@ -6,6 +6,8 @@
 #include "esphome/components/spi/spi.h"
 #include "esphome/components/fan/fan_state.h"
 #include "esphome/components/nrf905/nRF905.h"
+#include "esphome/components/sensor/sensor.h"
+#include "esphome/components/text_sensor/text_sensor.h"
 
 namespace esphome {
 namespace zehnder {
@@ -14,7 +16,7 @@ namespace zehnder {
 #define FAN_TX_FRAMES 4         // Retransmit every transmitted frame 4 times
 #define FAN_TX_RETRIES 10       // Retry transmission 10 times if no reply is received
 #define FAN_TTL 250             // 0xFA, default time-to-live for a frame
-#define FAN_REPLY_TIMEOUT 1000  // Wait 500ms for receiving a reply when doing a network scan
+#define FAN_REPLY_TIMEOUT 2000  // Wait 2000ms for receiving a reply
 
 /* Fan device types */
 // Ref: https://github.com/eelcohn/ZehnderComfoair#transmitter-and-receiver-types
@@ -40,7 +42,13 @@ enum {
   // FAN_NETWORK_JOIN_FINISH = 0x0D,
   FAN_TYPE_QUERY_NETWORK = 0x0D,
   FAN_TYPE_QUERY_DEVICE = 0x10,
-  FAN_FRAME_SETVOLTAGE_REPLY = 0x1D
+  FAN_FRAME_SETVOLTAGE_REPLY = 0x1D,
+
+  // New diagnostic commands
+  FAN_TYPE_QUERY_ERROR_STATUS = 0x30,    // Request error codes
+  FAN_TYPE_ERROR_STATUS_RESPONSE = 0x31, // Response with error codes
+  FAN_TYPE_QUERY_FILTER_STATUS = 0x32,   // Request filter status
+  FAN_TYPE_FILTER_STATUS_RESPONSE = 0x33 // Response with filter status
 };
 
 /* Fan speed presets */
@@ -68,6 +76,12 @@ class ZehnderRF : public Component, public fan::Fan {
   void set_rf(nrf905::nRF905 *const pRf) { rf_ = pRf; }
 
   void set_update_interval(const uint32_t interval) { interval_ = interval; }
+
+  // Sensors
+  void set_filter_remaining_sensor(sensor::Sensor *sensor) { filter_remaining_sensor_ = sensor; }
+  void set_filter_runtime_sensor(sensor::Sensor *sensor) { filter_runtime_sensor_ = sensor; }
+  void set_error_count_sensor(sensor::Sensor *sensor) { error_count_sensor_ = sensor; }
+  void set_error_code_sensor(text_sensor::TextSensor *sensor) { error_code_sensor_ = sensor; }
 
   void dump_config() override;
   void set_config(const uint32_t fan_networkId,
@@ -104,10 +118,16 @@ class ZehnderRF : public Component, public fan::Fan {
     StateWaitSetSpeedResponse,
     StateWaitSetSpeedConfirm,
 
+    // New states for diagnostic queries
+    StateWaitFilterStatusResponse,
+    StateWaitErrorStatusResponse,
+
     StateNrOf  // Keep last
   } State;
 
   void queryDevice(void);
+  void queryErrorStatus(void);
+  void queryFilterStatus(void);
 
   uint8_t createDeviceID(void);
   void discoveryStart(const uint8_t deviceId);
@@ -126,6 +146,12 @@ class ZehnderRF : public Component, public fan::Fan {
   nrf905::nRF905 *rf_;
   uint32_t interval_;
 
+  // Sensors
+  sensor::Sensor *filter_remaining_sensor_{nullptr};
+  sensor::Sensor *filter_runtime_sensor_{nullptr};
+  sensor::Sensor *error_count_sensor_{nullptr};
+  text_sensor::TextSensor *error_code_sensor_{nullptr};
+
   uint8_t _txFrame[FAN_FRAMESIZE];
 
   ESPPreferenceObject pref_;
@@ -140,6 +166,8 @@ class ZehnderRF : public Component, public fan::Fan {
   Config config_;
 
   uint32_t lastFanQuery_{0};
+  uint32_t lastFilterQuery_{0};
+  uint32_t lastErrorQuery_{0};
   std::function<void(void)> onReceiveTimeout_ = NULL;
 
   uint32_t msgSendTime_{0};
@@ -158,6 +186,19 @@ class ZehnderRF : public Component, public fan::Fan {
   } RfState;
   RfState rfState_{RfStateIdle};
 };
+
+// New payload structures for diagnostic features
+typedef struct __attribute__((packed)) {
+  uint8_t errorCount;      // Number of active errors
+  uint8_t errorCodes[5];   // Array of error codes
+  uint8_t errorSeverity;   // Severity level (warning/critical)
+} RfPayloadErrorStatus;
+
+typedef struct __attribute__((packed)) {
+  uint16_t totalRunHours;       // Total operation hours
+  uint16_t filterRunHours;      // Hours since last filter change
+  uint8_t filterPercentRemaining; // Filter life remaining percentage
+} RfPayloadFilterStatus;
 
 }  // namespace zehnder
 }  // namespace esphome

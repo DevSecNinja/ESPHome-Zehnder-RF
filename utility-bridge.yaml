@@ -223,9 +223,11 @@ button:
 # Load external components
 # https://esphome.io/components/external_components.html#external-components-git
 external_components:
-  - source: github://edwardmp/ESPHome-Zehnder-RF
+  - source:
+      path: components
+      type: local
     components: [ nrf905, zehnder ]
-    refresh: 0s
+    refresh: 1d
 
 # SPI
 spi:
@@ -257,6 +259,25 @@ fan:
     name: "${device_name} Ventilation"
     nrf905: nrf905_rf
     update_interval: "15s"
+    
+    # NEW: Filter status sensors (optional)
+    filter_remaining:
+      name: "${device_name} Filter Remaining"
+      id: ${device_id}_filter_remaining
+      
+    filter_runtime:
+      name: "${device_name} Filter Runtime" 
+      id: ${device_id}_filter_runtime
+    
+    # NEW: Error monitoring sensors (optional)
+    error_count:
+      name: "${device_name} Error Count"
+      id: ${device_id}_error_count
+      
+    error_code:
+      name: "${device_name} Error Codes"
+      id: ${device_id}_error_codes
+    
     on_speed_set:
       - sensor.template.publish:
           id: ${device_id}_ventilation_percentage
