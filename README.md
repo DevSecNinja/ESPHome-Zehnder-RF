@@ -39,6 +39,8 @@ GitHub Actions automatically runs tests on:
 - Pushes to main branches
 - Optional compilation tests (add `test-compile` label to PRs)
 
+The pipeline tests Python versions 3.11 and 3.12 (N-1 and N strategy). Python versions are automatically managed by Renovate and can be updated using the automation script in `scripts/update-python-versions.sh`.
+
 ## Configuration
 
 1. Copy `secrets.yaml.example` to `secrets.yaml` and fill in your values

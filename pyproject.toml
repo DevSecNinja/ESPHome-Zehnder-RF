@@ -1,0 +1,25 @@
+[build-system]
+requires = ["setuptools>=45", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "esphome-zehnder-rf"
+version = "0.1.0"
+description = "ESPHome custom components for controlling Zehnder ComfoFan S ventilation units via RF communication"
+authors = [{name = "DevSecNinja"}]
+readme = "README.md"
+license = {text = "MIT"}
+requires-python = ">=3.11"
+dependencies = [
+    "esphome>=2024.6.0"
+]
+
+[project.optional-dependencies]
+test = [
+    "esphome>=2024.6.0"
+]
+
+# Tool configurations
+[tool.renovate]
+# Ensure Renovate can detect and update Python version requirements
+python-version = "3.12"

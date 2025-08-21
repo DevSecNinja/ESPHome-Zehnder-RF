@@ -11,6 +11,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
+        # renovate: datasource=python-version
         python-version: [3.11, 3.12]
 
     steps:
@@ -59,7 +60,7 @@ jobs:
     steps:
     - uses: actions/checkout@v5
 
-    - name: Set up Python 3.12
+    - name: Set up Python 3.12  # renovate: datasource=python-version
       uses: actions/setup-python@v5
       with:
         python-version: 3.12
