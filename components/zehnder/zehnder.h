@@ -6,10 +6,17 @@
 #include "esphome/components/spi/spi.h"
 #include "esphome/components/fan/fan_state.h"
 #include "esphome/components/nrf905/nRF905.h"
-#include "esphome/components/sensor/sensor.h"
-#include "esphome/components/text_sensor/text_sensor.h"
 
 namespace esphome {
+
+// Forward declarations
+namespace sensor {
+class Sensor;
+}
+namespace text_sensor {
+class TextSensor;
+}
+
 namespace zehnder {
 
 #define FAN_FRAMESIZE 16        // Each frame consists of 16 bytes

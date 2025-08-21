@@ -1,6 +1,8 @@
 #include "zehnder.h"
 #include "esphome/core/log.h"
 #include "esphome/core/application.h"
+#include "esphome/components/sensor/sensor.h"
+#include "esphome/components/text_sensor/text_sensor.h"
 
 namespace esphome {
 namespace zehnder {
