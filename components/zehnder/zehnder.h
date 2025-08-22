@@ -5,6 +5,7 @@
 #include "esphome/core/hal.h"
 #include "esphome/components/spi/spi.h"
 #include "esphome/components/fan/fan_state.h"
+#include "esphome/components/binary_sensor/binary_sensor.h"
 #include "esphome/components/nrf905/nRF905.h"
 
 namespace esphome {
@@ -89,6 +90,7 @@ class ZehnderRF : public Component, public fan::Fan {
 
   bool timer;
   int voltage;
+  bool rf_healthy;
 
  protected:
   // State enum definition - needs to be before getStateName declaration
@@ -150,6 +152,13 @@ class ZehnderRF : public Component, public fan::Fan {
   uint8_t newTimer{0};
   bool newSetting{false};
 
+  // RF health tracking
+  uint32_t lastSuccessfulRfTime_{0};
+  uint32_t rfFailureCount_{0};
+
+ private:
+  void updateRfHealth(bool success);
+
   typedef enum {
     RfStateIdle,            // Idle state
     RfStateWaitAirwayFree,  // wait for airway free
@@ -157,6 +166,17 @@ class ZehnderRF : public Component, public fan::Fan {
     RfStateRxWait,
   } RfState;
   RfState rfState_{RfStateIdle};
+};
+
+class ZehnderRFStatusSensor : public Component, public binary_sensor::BinarySensor {
+ public:
+  void set_parent(ZehnderRF *parent) { parent_ = parent; }
+  void setup() override;
+  void loop() override;
+  float get_setup_priority() const override { return setup_priority::DATA; }
+
+ protected:
+  ZehnderRF *parent_;
 };
 
 }  // namespace zehnder
