@@ -11,7 +11,8 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        python-version: [3.11, 3.12]
+        # renovate: datasource=python-version
+        python-version: [3.12]
 
     steps:
     - uses: actions/checkout@v5
@@ -59,9 +60,11 @@ jobs:
     steps:
     - uses: actions/checkout@v5
 
+    # renovate: datasource=python-version
     - name: Set up Python 3.12
       uses: actions/setup-python@v5
       with:
+        # renovate: datasource=python-version
         python-version: 3.12
 
     - name: Cache pip packages

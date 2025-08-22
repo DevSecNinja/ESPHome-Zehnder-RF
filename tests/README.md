@@ -45,7 +45,7 @@ The GitHub Actions workflow (`.github/workflows/test.yml`) automatically runs:
 1. **Basic tests** (on all PRs and pushes):
    - Python syntax validation
    - ESPHome configuration validation
-   - Runs on Python 3.11 and 3.12
+   - Runs on latest Python
 
 2. **Compilation test** (optional, requires label or push to main):
    - Full C++ compilation test using ESPHome
@@ -63,7 +63,7 @@ The GitHub Actions workflow (`.github/workflows/test.yml`) automatically runs:
 
 ## Prerequisites
 
-- Python 3.11 or 3.12
+- Latest Python
 - ESPHome installed (`pip install esphome`)
 - All dependencies from the project (automatically handled in CI)
 
