@@ -84,7 +84,9 @@ static int clamp_voltage(const int value) {
   }
 }
 
-ZehnderRF::ZehnderRF(void) {}
+ZehnderRF::ZehnderRF(void) {
+  rf_healthy = true;  // Start assuming healthy connection
+}
 
 fan::FanTraits ZehnderRF::get_traits() { return fan::FanTraits(false, true, false, this->speed_count_); }
 
@@ -392,6 +394,9 @@ void ZehnderRF::rfHandleReceived(const uint8_t *const pData, const uint8_t dataL
                      pResponse->tx_type, pResponse->tx_id);
 
             this->rfComplete();
+            
+            // Mark RF communication as healthy after successful pairing
+            this->updateRfHealth(true);
 
             ESP_LOGI(TAG, "Saving successful pairing configuration to preferences");
             this->pref_.save(&this->config_);
@@ -438,6 +443,9 @@ void ZehnderRF::rfHandleReceived(const uint8_t *const pData, const uint8_t dataL
             this->voltage = clamp_voltage(pResponse->payload.fanSettings.voltage);
             ESP_LOGD(TAG, "Publishing updated fan state to Home Assistant");
             this->publish_state();
+
+            // Mark RF communication as healthy
+            this->updateRfHealth(true);
 
             ESP_LOGD(TAG, "State transition: %s -> %s", getStateName(this->state_), getStateName(StateIdle));
             this->state_ = StateIdle;
@@ -486,6 +494,9 @@ void ZehnderRF::rfHandleReceived(const uint8_t *const pData, const uint8_t dataL
             this->voltage = clamp_voltage(pResponse->payload.fanSettings.voltage);
             ESP_LOGD(TAG, "Publishing updated fan state after speed change");
             this->publish_state();
+
+            // Mark RF communication as healthy
+            this->updateRfHealth(true);
 
             ESP_LOGD(TAG, "Preparing acknowledgment frame for speed change");
             (void) memset(this->_txFrame, 0, FAN_FRAMESIZE);  // Clear frame data
@@ -566,6 +577,7 @@ void ZehnderRF::queryDevice(void) {
 
   this->startTransmit(this->_txFrame, FAN_TX_RETRIES, [this]() {
     ESP_LOGW(TAG, "Query timeout - main unit did not respond after %u retries", FAN_TX_RETRIES);
+    this->updateRfHealth(false);
     this->state_ = StateIdle;
   });
 
@@ -626,6 +638,7 @@ void ZehnderRF::setSpeed(const uint8_t paramSpeed, const uint8_t paramTimer) {
 
     this->startTransmit(this->_txFrame, FAN_TX_RETRIES, [this]() {
       ESP_LOGW(TAG, "Set speed command timeout - no response received after %u retries", FAN_TX_RETRIES);
+      this->updateRfHealth(false);
       this->state_ = StateIdle;
     });
 
@@ -674,6 +687,7 @@ void ZehnderRF::discoveryStart(const uint8_t deviceId) {
 
   this->startTransmit(this->_txFrame, FAN_TX_RETRIES, [this]() {
     ESP_LOGW(TAG, "Discovery timeout - no response from main unit during pairing process");
+    this->updateRfHealth(false);
     this->state_ = StateStartDiscovery;
   });
 
@@ -726,6 +740,7 @@ void ZehnderRF::rfHandler(void) {
     case RfStateWaitAirwayFree:
       if ((millis() - this->airwayFreeWaitTime_) > 5000) {
         ESP_LOGW(TAG, "Airway busy timeout after 5 seconds - aborting transmission");
+        this->updateRfHealth(false);
         this->rfState_ = RfStateIdle;
 
         if (this->onReceiveTimeout_ != NULL) {
@@ -756,6 +771,7 @@ void ZehnderRF::rfHandler(void) {
         } else if (this->retries_ == 0) {
           // Oh oh, ran out of options
           ESP_LOGW(TAG, "All retry attempts exhausted - no response received from fan unit");
+          this->updateRfHealth(false);
           if (this->onReceiveTimeout_ != NULL) {
             this->onReceiveTimeout_();
           }
@@ -783,6 +799,46 @@ const char* ZehnderRF::getStateName(State state) {
     case StateWaitSetSpeedResponse: return "WaitSetSpeedResponse";
     case StateWaitSetSpeedConfirm: return "WaitSetSpeedConfirm";
     default: return "Unknown";
+  }
+}
+
+void ZehnderRF::updateRfHealth(bool success) {
+  uint32_t currentTime = millis();
+  
+  if (success) {
+    // Reset failure counter and update last successful time
+    this->rfFailureCount_ = 0;
+    this->lastSuccessfulRfTime_ = currentTime;
+    
+    // If we were unhealthy, mark as healthy and log the recovery
+    if (!this->rf_healthy) {
+      ESP_LOGI(TAG, "RF communication restored - status sensor healthy");
+      this->rf_healthy = true;
+    }
+  } else {
+    // Increment failure counter
+    this->rfFailureCount_++;
+    
+    // Consider unhealthy if multiple failures or no successful communication for extended period
+    bool shouldBeUnhealthy = (this->rfFailureCount_ >= 3) || 
+                             ((currentTime - this->lastSuccessfulRfTime_) > 300000);  // 5 minutes
+    
+    if (shouldBeUnhealthy && this->rf_healthy) {
+      ESP_LOGW(TAG, "RF communication failed (%d failures, last success %d ms ago) - status sensor unhealthy", 
+               this->rfFailureCount_, (currentTime - this->lastSuccessfulRfTime_));
+      this->rf_healthy = false;
+    }
+  }
+}
+
+// ZehnderRFStatusSensor implementation
+void ZehnderRFStatusSensor::setup() {
+  ESP_LOGCONFIG(TAG, "ZehnderRF Status Sensor '%s'", this->get_name().c_str());
+}
+
+void ZehnderRFStatusSensor::loop() {
+  if (parent_ != nullptr) {
+    this->publish_state(parent_->rf_healthy);
   }
 }
 

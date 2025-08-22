@@ -91,6 +91,13 @@ binary_sensor:
     id: "${device_id}_timer"
     icon: mdi:fan-clock
     lambda: !lambda 'return ${device_id}_ventilation->timer;'
+  
+  - platform: zehnder
+    name: "${device_name} RF Status"
+    id: "${device_id}_rf_status"
+    zehnder_rf: ${device_id}_ventilation
+    icon: mdi:wifi-check
+    device_class: connectivity
 
 number:
   - platform: template

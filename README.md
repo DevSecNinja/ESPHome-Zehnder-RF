@@ -45,3 +45,39 @@ GitHub Actions automatically runs tests on:
 2. Generate a secure API key: `openssl rand -base64 32`
 3. Modify GPIO pins in the configuration as needed for your setup
 
+### Available Sensors
+
+The component provides several sensors for monitoring your Zehnder ComfoFan system:
+
+#### Fan Control
+- **Fan platform**: Main ventilation control with speed settings (Auto, Low, Medium, High, Max)
+- **Timer sensor**: Binary sensor showing if timer mode is active
+- **Ventilation percentage**: Current fan speed as percentage (0-100%)
+- **Ventilation mode**: Text sensor showing current mode (Auto, Low, Medium, High, Max)
+
+#### RF Health Monitoring (NEW)
+- **RF Status sensor**: Binary sensor that monitors RF communication health
+  - **ON**: RF communication is working normally
+  - **OFF**: RF communication has failed (timeouts, no responses)
+  - Triggers on multiple failure conditions:
+    - Discovery timeouts during pairing
+    - Query timeouts when main unit doesn't respond
+    - Speed command timeouts
+    - General RF communication failures
+    - Airway busy conditions
+  - Automatically recovers when RF communication is restored
+  
+This health sensor helps detect when RF communication breaks, making it easier to troubleshoot connectivity issues that occur "every 6 months or so" as described in the issue.
+
+### Example Configuration
+
+```yaml
+binary_sensor:
+  - platform: zehnder
+    name: "Zehnder RF Status" 
+    id: zehnder_rf_status
+    zehnder_rf: zehnder_ventilation  # Reference to your fan component
+    icon: mdi:wifi-check
+    device_class: connectivity
+```
+
