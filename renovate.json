@@ -2,5 +2,26 @@
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
   "extends": [
     "config:recommended"
+  ],
+  "python": {
+    "enabled": true
+  },
+  "regexManagers": [
+    {
+      "fileMatch": ["^\\.github/workflows/test\\.yml$"],
+      "matchStrings": [
+        "python-version: \\[(?<currentValue>[^\\]]+)\\]",
+        "python-version: (?<currentValue>\\d+\\.\\d+)"
+      ],
+      "depNameTemplate": "python",
+      "datasourceTemplate": "python-version"
+    }
+  ],
+  "packageRules": [
+    {
+      "matchDepNames": ["python"],
+      "matchDatasources": ["python-version"],
+      "rangeStrategy": "replace"
+    }
   ]
 }
