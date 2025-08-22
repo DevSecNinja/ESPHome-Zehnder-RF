@@ -3,12 +3,12 @@
   "extends": [
     "config:recommended"
   ],
-  "python": {
-    "enabled": true
-  },
-  "regexManagers": [
+  "customManagers": [
     {
-      "fileMatch": ["^\\.github/workflows/test\\.yml$"],
+      "customType": "regex",
+      "managerFilePatterns": [
+        "/^\\.github/workflows/test\\.yml$/"
+      ],
       "matchStrings": [
         "python-version: \\[(?<currentValue>[^\\]]+)\\]",
         "python-version: (?<currentValue>\\d+\\.\\d+)"
@@ -19,8 +19,18 @@
   ],
   "packageRules": [
     {
-      "matchDepNames": ["python"],
-      "matchDatasources": ["python-version"],
+      "matchCategories": [
+        "python"
+      ],
+      "enabled": true
+    },
+    {
+      "matchDepNames": [
+        "python"
+      ],
+      "matchDatasources": [
+        "python-version"
+      ],
       "rangeStrategy": "replace"
     }
   ]
