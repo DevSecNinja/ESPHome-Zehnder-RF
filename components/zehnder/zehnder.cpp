@@ -86,57 +86,85 @@ ZehnderRF::ZehnderRF(void) {}
 fan::FanTraits ZehnderRF::get_traits() { return fan::FanTraits(false, true, false, this->speed_count_); }
 
 void ZehnderRF::control(const fan::FanCall &call) {
+  bool changed = false;
+  
   if (call.get_state().has_value()) {
-    this->state = *call.get_state();
-    ESP_LOGD(TAG, "Control has state: %u", this->state);
+    bool new_state = *call.get_state();
+    if (this->state != new_state) {
+      ESP_LOGI(TAG, "Fan state change requested: %s -> %s", 
+               this->state ? "ON" : "OFF", new_state ? "ON" : "OFF");
+      this->state = new_state;
+      changed = true;
+    }
   }
+  
   if (call.get_speed().has_value()) {
-    this->speed = *call.get_speed();
-    ESP_LOGD(TAG, "Control has speed: %u", this->speed);
+    int new_speed = *call.get_speed();
+    if (this->speed != new_speed) {
+      ESP_LOGI(TAG, "Fan speed change requested: %u -> %u", this->speed, new_speed);
+      this->speed = new_speed;
+      changed = true;
+    }
+  }
+
+  if (!changed) {
+    ESP_LOGV(TAG, "Control called but no changes requested");
+    return;
   }
 
   switch (this->state_) {
     case StateIdle:
+      uint8_t target_speed = this->state ? this->speed : 0x00;
+      ESP_LOGI(TAG, "Setting fan speed to %u (state: %s)", target_speed, this->state ? "ON" : "OFF");
+      
       // Set speed
-      this->setSpeed(this->state ? this->speed : 0x00, 0);
+      this->setSpeed(target_speed, 0);
 
       this->lastFanQuery_ = millis();  // Update time
+      ESP_LOGD(TAG, "Updated last query time for polling schedule");
       break;
 
     default:
+      ESP_LOGW(TAG, "Control request ignored - device not in idle state (current state: %d)", this->state_);
       break;
   }
 
+  ESP_LOGD(TAG, "Publishing updated state to Home Assistant");
   this->publish_state();
 }
 
 void ZehnderRF::setup() {
-  ESP_LOGCONFIG(TAG, "ZEHNDER '%s':", this->get_name().c_str());
+  ESP_LOGI(TAG, "Initializing Zehnder RF component '%s'", this->get_name().c_str());
 
   // Clear config
+  ESP_LOGD(TAG, "Clearing configuration structure");
   memset(&this->config_, 0, sizeof(Config));
 
+  ESP_LOGD(TAG, "Loading stored configuration from preferences");
   uint32_t hash = fnv1_hash("zehnderrf");
   this->pref_ = global_preferences->make_preference<Config>(hash, true);
   if (this->pref_.load(&this->config_)) {
-    ESP_LOGD(TAG, "Config load ok");
+    ESP_LOGI(TAG, "Stored configuration loaded successfully");
+  } else {
+    ESP_LOGW(TAG, "No stored configuration found, will require pairing");
   }
 
   // Set nRF905 config
+  ESP_LOGD(TAG, "Configuring nRF905 radio for Zehnder protocol");
   nrf905::Config rfConfig;
   rfConfig = this->rf_->getConfig();
 
-  rfConfig.band = true;
-  rfConfig.channel = 118;
+  rfConfig.band = true;     // 868MHz band
+  rfConfig.channel = 118;   // Zehnder uses channel 118
 
-  // // CRC 16
+  // CRC 16
   rfConfig.crc_enable = true;
   rfConfig.crc_bits = 16;
 
-  // // TX power 10
+  // TX power 10dBm
   rfConfig.tx_power = 10;
 
-  // // RX power normal
+  // RX power normal
   rfConfig.rx_power = nrf905::PowerNormal;
 
   rfConfig.rx_address = 0x89816EA9;  // ZEHNDER_NETWORK_LINK_ID;
@@ -201,23 +229,39 @@ void ZehnderRF::set_config(const uint32_t fan_networkId,
 void ZehnderRF::loop(void) {
   uint8_t deviceId;
   nrf905::Config rfConfig;
+  static State lastState = StateStartup;
 
   // Run RF handler
   this->rfHandler();
+
+  // Log state transitions
+  if (this->state_ != lastState) {
+    const char* state_names[] = {
+      "StateStartup", "StateStartDiscovery", "StateDiscoveryWaitForLinkRequest", 
+      "StateDiscoveryWaitForJoinResponse", "StateDiscoveryJoinComplete",
+      "StateIdle", "StateWaitQueryResponse", "StateWaitSetSpeedResponse", "StateWaitSetSpeedConfirm"
+    };
+    ESP_LOGI(TAG, "State transition: %s -> %s", 
+             lastState < StateNrOf ? state_names[lastState] : "Unknown",
+             this->state_ < StateNrOf ? state_names[this->state_] : "Unknown");
+    lastState = this->state_;
+  }
 
   switch (this->state_) {
     case StateStartup:
       // Wait until started up
       if (millis() > 15000) {
+        ESP_LOGD(TAG, "Startup period complete, checking configuration");
         // Discovery?
         if ((this->config_.fan_networkId == 0x00000000) || (this->config_.fan_my_device_type == 0) ||
             (this->config_.fan_my_device_id == 0) || (this->config_.fan_main_unit_type == 0) ||
             (this->config_.fan_main_unit_id == 0)) {
-          ESP_LOGD(TAG, "Invalid config, start paring");
+          ESP_LOGI(TAG, "No valid pairing configuration found, starting device discovery");
 
           this->state_ = StateStartDiscovery;
         } else {
-          ESP_LOGD(TAG, "Config data valid, start polling");
+          ESP_LOGI(TAG, "Valid pairing configuration found (Network ID: 0x%08X), starting normal operation", 
+                   this->config_.fan_networkId);
 
           rfConfig = this->rf_->getConfig();
           rfConfig.rx_address = this->config_.fan_networkId;
@@ -225,6 +269,7 @@ void ZehnderRF::loop(void) {
           this->rf_->writeTxAddress(this->config_.fan_networkId);
 
           // Start with query
+          ESP_LOGD(TAG, "Performing initial device query");
           this->queryDevice();
         }
       }
@@ -232,6 +277,7 @@ void ZehnderRF::loop(void) {
 
     case StateStartDiscovery:
       deviceId = this->createDeviceID();
+      ESP_LOGI(TAG, "Starting device discovery with device ID: 0x%02X", deviceId);
       this->discoveryStart(deviceId);
 
       // For now just set TX
@@ -239,9 +285,11 @@ void ZehnderRF::loop(void) {
 
     case StateIdle:
       if (newSetting == true) {
+        ESP_LOGD(TAG, "New speed setting requested: %u (timer: %u)", newSpeed, newTimer);
         this->setSpeed(newSpeed, newTimer);
       } else {
         if ((millis() - this->lastFanQuery_) > this->interval_) {
+          ESP_LOGV(TAG, "Performing periodic device query (interval: %u ms)", this->interval_);
           this->queryDevice();
         }
       }
@@ -526,52 +574,64 @@ void ZehnderRF::setSpeed(const uint8_t paramSpeed, const uint8_t paramTimer) {
   uint8_t timer = paramTimer;
 
   if (speed > this->speed_count_) {
-    ESP_LOGW(TAG, "Requested speed too high (%u)", speed);
+    ESP_LOGW(TAG, "Requested speed %u exceeds maximum %u, clamping", speed, this->speed_count_);
     speed = this->speed_count_;
   }
 
-  ESP_LOGD(TAG, "Set speed: 0x%02X; Timer %u minutes", speed, timer);
+  ESP_LOGI(TAG, "Setting fan speed to %u (0x%02X) with timer %u minutes", speed, speed, timer);
 
-  if (this->state_ == StateIdle) {
-    (void) memset(this->_txFrame, 0, FAN_FRAMESIZE);  // Clear frame data
+  if (this->state_ != StateIdle) {
+    ESP_LOGW(TAG, "Cannot set speed - device not in idle state (current: %d)", this->state_);
+    return;
+  }
 
-    // Build frame
-    pFrame->rx_type = this->config_.fan_main_unit_type;
-    pFrame->rx_id = 0x00;  // Broadcast
-    // pFrame->tx_type = this->config_.fan_my_device_type;
-    pFrame->tx_id = this->config_.fan_my_device_id;
-    pFrame->ttl = FAN_TTL;
+  ESP_LOGD(TAG, "Building RF frame for speed/timer command");
+  (void) memset(this->_txFrame, 0, FAN_FRAMESIZE);  // Clear frame data
 
-    if (timer == 0 && speed == 0) {
-      // We want to switch to auto by setting both the timer and speed to 0
-      // This mimics the Timer RF 'OFF' command.
-      pFrame->command = FAN_FRAME_SETTIMER;
-      pFrame->parameter_count = sizeof(RfPayloadFanSetTimer);
-      pFrame->payload.setTimer.speed = speed;
-      pFrame->payload.setTimer.timer = timer;
-    }
-    else if (timer == 0) {
-      pFrame->tx_type = FAN_TYPE_CO2_SENSOR;
-      pFrame->command = FAN_FRAME_SETSPEED;
-      pFrame->parameter_count = sizeof(RfPayloadFanSetSpeed);
-      pFrame->payload.setSpeed.speed = speed;
-    } else {
-      pFrame->tx_type = FAN_TYPE_TIMER_REMOTE_CONTROL;
-      pFrame->command = FAN_FRAME_SETTIMER;
-      pFrame->parameter_count = sizeof(RfPayloadFanSetTimer);
-      pFrame->payload.setTimer.speed = speed;
-      pFrame->payload.setTimer.timer = timer;
-    }
+  // Build frame
+  pFrame->rx_type = this->config_.fan_main_unit_type;
+  pFrame->rx_id = 0x00;  // Broadcast
+  // pFrame->tx_type = this->config_.fan_my_device_type;
+  pFrame->tx_id = this->config_.fan_my_device_id;
+  pFrame->ttl = FAN_TTL;
 
-    this->startTransmit(this->_txFrame, FAN_TX_RETRIES, [this]() {
-      ESP_LOGW(TAG, "Set speed timeout");
-      this->state_ = StateIdle;
-    });
-
-    newSetting = false;
-    this->state_ = StateWaitSetSpeedResponse;
+  if (timer == 0 && speed == 0) {
+    // We want to switch to auto by setting both the timer and speed to 0
+    // This mimics the Timer RF 'OFF' command.
+    ESP_LOGD(TAG, "Sending AUTO mode command (timer OFF)");
+    pFrame->command = FAN_FRAME_SETTIMER;
+    pFrame->parameter_count = sizeof(RfPayloadFanSetTimer);
+    pFrame->payload.setTimer.speed = speed;
+    pFrame->payload.setTimer.timer = timer;
+  }
+  else if (timer == 0) {
+    ESP_LOGD(TAG, "Sending continuous speed command (CO2 sensor type)");
+    pFrame->tx_type = FAN_TYPE_CO2_SENSOR;
+    pFrame->command = FAN_FRAME_SETSPEED;
+    pFrame->parameter_count = sizeof(RfPayloadFanSetSpeed);
+    pFrame->payload.setSpeed.speed = speed;
   } else {
-    ESP_LOGD(TAG, "Invalid state, I'm trying later again");
+    ESP_LOGD(TAG, "Sending timed speed command (timer remote type)");
+    pFrame->tx_type = FAN_TYPE_TIMER_REMOTE_CONTROL;
+    pFrame->command = FAN_FRAME_SETTIMER;
+    pFrame->parameter_count = sizeof(RfPayloadFanSetTimer);
+    pFrame->payload.setTimer.speed = speed;
+    pFrame->payload.setTimer.timer = timer;
+  }
+
+  ESP_LOGD(TAG, "Frame: type=0x%02X, cmd=0x%02X, params=%u", 
+           pFrame->tx_type, pFrame->command, pFrame->parameter_count);
+
+  this->startTransmit(this->_txFrame, FAN_TX_RETRIES, [this]() {
+    ESP_LOGE(TAG, "Set speed command timeout - no response from fan unit");
+    this->state_ = StateIdle;
+  });
+
+  newSetting = false;
+  ESP_LOGI(TAG, "Speed command transmitted, waiting for response");
+  this->state_ = StateWaitSetSpeedResponse;
+  } else {
+    ESP_LOGW(TAG, "Device not in idle state, queuing speed change for later (current state: %d)", this->state_);
     newSpeed = speed;
     newTimer = timer;
     newSetting = true;
@@ -582,12 +642,16 @@ void ZehnderRF::discoveryStart(const uint8_t deviceId) {
   RfFrame *const pFrame = (RfFrame *) this->_txFrame;  // frame helper
   nrf905::Config rfConfig;
 
-  ESP_LOGD(TAG, "Start discovery with ID %u", deviceId);
+  ESP_LOGI(TAG, "Starting device discovery process with device ID: 0x%02X", deviceId);
 
   this->config_.fan_my_device_type = FAN_TYPE_REMOTE_CONTROL;
   this->config_.fan_my_device_id = deviceId;
+  
+  ESP_LOGD(TAG, "Set local device type to REMOTE_CONTROL (0x%02X) with ID 0x%02X", 
+           FAN_TYPE_REMOTE_CONTROL, deviceId);
 
   // Build frame
+  ESP_LOGD(TAG, "Building network join acknowledgement frame");
   (void) memset(this->_txFrame, 0, FAN_FRAMESIZE);  // Clear frame data
 
   // Set payload, available for linking
@@ -599,19 +663,25 @@ void ZehnderRF::discoveryStart(const uint8_t deviceId) {
   pFrame->command = FAN_NETWORK_JOIN_ACK;
   pFrame->parameter_count = sizeof(RfPayloadNetworkJoinAck);
   pFrame->payload.networkJoinAck.networkId = NETWORK_LINK_ID;
+  
+  ESP_LOGD(TAG, "Join frame: tx_type=0x%02X, tx_id=0x%02X, network=0x%08X", 
+           pFrame->tx_type, pFrame->tx_id, NETWORK_LINK_ID);
 
   // Set RX and TX address
+  ESP_LOGD(TAG, "Configuring radio for discovery mode (network ID: 0x%08X)", NETWORK_LINK_ID);
   rfConfig = this->rf_->getConfig();
   rfConfig.rx_address = NETWORK_LINK_ID;
   this->rf_->updateConfig(&rfConfig, NULL);
   this->rf_->writeTxAddress(NETWORK_LINK_ID, NULL);
 
   this->startTransmit(this->_txFrame, FAN_TX_RETRIES, [this]() {
-    ESP_LOGW(TAG, "Start discovery timeout");
+    ESP_LOGE(TAG, "Discovery broadcast timeout - no response from fan units");
+    ESP_LOGI(TAG, "Retrying discovery process");
     this->state_ = StateStartDiscovery;
   });
 
   // Update state
+  ESP_LOGI(TAG, "Discovery frame transmitted, waiting for link request from fan unit");
   this->state_ = StateDiscoveryWaitForLinkRequest;
 }
 
@@ -647,54 +717,87 @@ void ZehnderRF::rfComplete(void) {
 }
 
 void ZehnderRF::rfHandler(void) {
+  static RfState lastRfState = RfStateIdle;
+  
+  // Log RF state transitions
+  if (this->rfState_ != lastRfState) {
+    const char* rf_state_names[] = {"RfStateIdle", "RfStateWaitAirwayFree", "RfStateTxBusy", "RfStateRxWait"};
+    ESP_LOGD(TAG, "RF state transition: %s -> %s", 
+             rf_state_names[lastRfState], rf_state_names[this->rfState_]);
+    lastRfState = this->rfState_;
+  }
+
   switch (this->rfState_) {
     case RfStateIdle:
       break;
 
     case RfStateWaitAirwayFree:
       if ((millis() - this->airwayFreeWaitTime_) > 5000) {
-        ESP_LOGW(TAG, "Airway too busy, giving up");
+        ESP_LOGW(TAG, "Airway busy timeout after 5000ms, aborting transmission");
         this->rfState_ = RfStateIdle;
 
         if (this->onReceiveTimeout_ != NULL) {
           this->onReceiveTimeout_();
+        } else {
+          ESP_LOGW(TAG, "No timeout callback registered");
         }
       } else if (this->rf_->airwayBusy() == false) {
-        ESP_LOGD(TAG, "Start TX");
+        ESP_LOGI(TAG, "Airway clear, starting transmission (%d retransmissions)", FAN_TX_FRAMES);
         this->rf_->startTx(FAN_TX_FRAMES, nrf905::Receive);  // After transmit, wait for response
 
         this->rfState_ = RfStateTxBusy;
+      } else {
+        // Log periodically to avoid spam
+        static unsigned long lastBusyLog = 0;
+        if (millis() - lastBusyLog > 1000) {
+          ESP_LOGV(TAG, "Waiting for airway to become free (elapsed: %lu ms)", 
+                   millis() - this->airwayFreeWaitTime_);
+          lastBusyLog = millis();
+        }
       }
       break;
 
     case RfStateTxBusy:
+      // Transmission in progress, waiting for nRF905 to complete
       break;
 
     case RfStateRxWait:
       if ((this->retries_ >= 0) && ((millis() - this->msgSendTime_) > FAN_REPLY_TIMEOUT)) {
-        ESP_LOGD(TAG, "Receive timeout");
+        ESP_LOGW(TAG, "Reply timeout after %d ms", FAN_REPLY_TIMEOUT);
 
         if (this->retries_ > 0) {
           --this->retries_;
-          ESP_LOGD(TAG, "No data received, retry again (left: %u)", this->retries_);
+          ESP_LOGI(TAG, "Retrying transmission (attempts remaining: %u)", this->retries_);
 
           this->rfState_ = RfStateWaitAirwayFree;
           this->airwayFreeWaitTime_ = millis();
         } else if (this->retries_ == 0) {
           // Oh oh, ran out of options
 
-          ESP_LOGD(TAG, "No messages received, giving up now...");
+          ESP_LOGE(TAG, "All retry attempts exhausted, giving up on transmission");
           if (this->onReceiveTimeout_ != NULL) {
             this->onReceiveTimeout_();
+          } else {
+            ESP_LOGW(TAG, "No timeout callback registered");
           }
 
           // Back to idle
           this->rfState_ = RfStateIdle;
         }
+      } else {
+        // Log waiting status periodically
+        static unsigned long lastWaitLog = 0;
+        if (millis() - lastWaitLog > 500) {
+          ESP_LOGV(TAG, "Waiting for reply (elapsed: %lu ms, retries left: %d)", 
+                   millis() - this->msgSendTime_, this->retries_);
+          lastWaitLog = millis();
+        }
       }
       break;
 
     default:
+      ESP_LOGE(TAG, "Unknown RF state: %d", this->rfState_);
+      this->rfState_ = RfStateIdle;
       break;
   }
 }
