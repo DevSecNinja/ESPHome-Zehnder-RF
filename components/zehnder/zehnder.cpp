@@ -114,7 +114,7 @@ void ZehnderRF::control(const fan::FanCall &call) {
   }
 
   switch (this->state_) {
-    case StateIdle:
+    case StateIdle: {
       uint8_t target_speed = this->state ? this->speed : 0x00;
       ESP_LOGI(TAG, "Setting fan speed to %u (state: %s)", target_speed, this->state ? "ON" : "OFF");
       
@@ -124,6 +124,7 @@ void ZehnderRF::control(const fan::FanCall &call) {
       this->lastFanQuery_ = millis();  // Update time
       ESP_LOGD(TAG, "Updated last query time for polling schedule");
       break;
+    }
 
     default:
       ESP_LOGW(TAG, "Control request ignored - device not in idle state (current state: %d)", this->state_);
@@ -603,56 +604,52 @@ void ZehnderRF::setSpeed(const uint8_t paramSpeed, const uint8_t paramTimer) {
 
   ESP_LOGI(TAG, "Setting fan speed to %u (0x%02X) with timer %u minutes", speed, speed, timer);
 
-  if (this->state_ != StateIdle) {
-    ESP_LOGW(TAG, "Cannot set speed - device not in idle state (current: %d)", this->state_);
-    return;
-  }
+  if (this->state_ == StateIdle) {
+    ESP_LOGD(TAG, "Building RF frame for speed/timer command");
+    (void) memset(this->_txFrame, 0, FAN_FRAMESIZE);  // Clear frame data
 
-  ESP_LOGD(TAG, "Building RF frame for speed/timer command");
-  (void) memset(this->_txFrame, 0, FAN_FRAMESIZE);  // Clear frame data
+    // Build frame
+    pFrame->rx_type = this->config_.fan_main_unit_type;
+    pFrame->rx_id = 0x00;  // Broadcast
+    // pFrame->tx_type = this->config_.fan_my_device_type;
+    pFrame->tx_id = this->config_.fan_my_device_id;
+    pFrame->ttl = FAN_TTL;
 
-  // Build frame
-  pFrame->rx_type = this->config_.fan_main_unit_type;
-  pFrame->rx_id = 0x00;  // Broadcast
-  // pFrame->tx_type = this->config_.fan_my_device_type;
-  pFrame->tx_id = this->config_.fan_my_device_id;
-  pFrame->ttl = FAN_TTL;
+    if (timer == 0 && speed == 0) {
+      // We want to switch to auto by setting both the timer and speed to 0
+      // This mimics the Timer RF 'OFF' command.
+      ESP_LOGD(TAG, "Sending AUTO mode command (timer OFF)");
+      pFrame->command = FAN_FRAME_SETTIMER;
+      pFrame->parameter_count = sizeof(RfPayloadFanSetTimer);
+      pFrame->payload.setTimer.speed = speed;
+      pFrame->payload.setTimer.timer = timer;
+    }
+    else if (timer == 0) {
+      ESP_LOGD(TAG, "Sending continuous speed command (CO2 sensor type)");
+      pFrame->tx_type = FAN_TYPE_CO2_SENSOR;
+      pFrame->command = FAN_FRAME_SETSPEED;
+      pFrame->parameter_count = sizeof(RfPayloadFanSetSpeed);
+      pFrame->payload.setSpeed.speed = speed;
+    } else {
+      ESP_LOGD(TAG, "Sending timed speed command (timer remote type)");
+      pFrame->tx_type = FAN_TYPE_TIMER_REMOTE_CONTROL;
+      pFrame->command = FAN_FRAME_SETTIMER;
+      pFrame->parameter_count = sizeof(RfPayloadFanSetTimer);
+      pFrame->payload.setTimer.speed = speed;
+      pFrame->payload.setTimer.timer = timer;
+    }
 
-  if (timer == 0 && speed == 0) {
-    // We want to switch to auto by setting both the timer and speed to 0
-    // This mimics the Timer RF 'OFF' command.
-    ESP_LOGD(TAG, "Sending AUTO mode command (timer OFF)");
-    pFrame->command = FAN_FRAME_SETTIMER;
-    pFrame->parameter_count = sizeof(RfPayloadFanSetTimer);
-    pFrame->payload.setTimer.speed = speed;
-    pFrame->payload.setTimer.timer = timer;
-  }
-  else if (timer == 0) {
-    ESP_LOGD(TAG, "Sending continuous speed command (CO2 sensor type)");
-    pFrame->tx_type = FAN_TYPE_CO2_SENSOR;
-    pFrame->command = FAN_FRAME_SETSPEED;
-    pFrame->parameter_count = sizeof(RfPayloadFanSetSpeed);
-    pFrame->payload.setSpeed.speed = speed;
-  } else {
-    ESP_LOGD(TAG, "Sending timed speed command (timer remote type)");
-    pFrame->tx_type = FAN_TYPE_TIMER_REMOTE_CONTROL;
-    pFrame->command = FAN_FRAME_SETTIMER;
-    pFrame->parameter_count = sizeof(RfPayloadFanSetTimer);
-    pFrame->payload.setTimer.speed = speed;
-    pFrame->payload.setTimer.timer = timer;
-  }
+    ESP_LOGD(TAG, "Frame: type=0x%02X, cmd=0x%02X, params=%u", 
+             pFrame->tx_type, pFrame->command, pFrame->parameter_count);
 
-  ESP_LOGD(TAG, "Frame: type=0x%02X, cmd=0x%02X, params=%u", 
-           pFrame->tx_type, pFrame->command, pFrame->parameter_count);
+    this->startTransmit(this->_txFrame, FAN_TX_RETRIES, [this]() {
+      ESP_LOGE(TAG, "Set speed command timeout - no response from fan unit");
+      this->state_ = StateIdle;
+    });
 
-  this->startTransmit(this->_txFrame, FAN_TX_RETRIES, [this]() {
-    ESP_LOGE(TAG, "Set speed command timeout - no response from fan unit");
-    this->state_ = StateIdle;
-  });
-
-  newSetting = false;
-  ESP_LOGI(TAG, "Speed command transmitted, waiting for response");
-  this->state_ = StateWaitSetSpeedResponse;
+    newSetting = false;
+    ESP_LOGI(TAG, "Speed command transmitted, waiting for response");
+    this->state_ = StateWaitSetSpeedResponse;
   } else {
     ESP_LOGW(TAG, "Device not in idle state, queuing speed change for later (current state: %d)", this->state_);
     newSpeed = speed;
