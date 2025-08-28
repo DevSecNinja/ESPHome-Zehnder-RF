@@ -15,26 +15,46 @@ nRF905::nRF905(void) {}
 void nRF905::setup() {
   Config config;
 
-  ESP_LOGD(TAG, "Start nRF905 init");
+  ESP_LOGI(TAG, "Initializing nRF905 radio module");
 
+  ESP_LOGD(TAG, "Setting up SPI interface");
   this->spi_setup();
+  
+  ESP_LOGD(TAG, "Configuring GPIO pins");
   if (this->_gpio_pin_am != NULL) {
     this->_gpio_pin_am->setup();
+    ESP_LOGV(TAG, "AM (Address Match) pin configured");
+  } else {
+    ESP_LOGV(TAG, "AM (Address Match) pin not configured");
   }
   if (this->_gpio_pin_cd != NULL) {
     this->_gpio_pin_cd->setup();
+    ESP_LOGV(TAG, "CD (Carrier Detect) pin configured");
+  } else {
+    ESP_LOGV(TAG, "CD (Carrier Detect) pin not configured");
   }
   this->_gpio_pin_ce->setup();
+  ESP_LOGV(TAG, "CE (Chip Enable) pin configured");
+  
   if (this->_gpio_pin_dr != NULL) {
     this->_gpio_pin_dr->setup();
+    ESP_LOGV(TAG, "DR (Data Ready) pin configured");
+  } else {
+    ESP_LOGV(TAG, "DR (Data Ready) pin not configured");
   }
   this->_gpio_pin_pwr->setup();
+  ESP_LOGV(TAG, "PWR (Power) pin configured");
+  
   this->_gpio_pin_txen->setup();
+  ESP_LOGV(TAG, "TXEN (TX Enable) pin configured");
 
+  ESP_LOGD(TAG, "Powering down radio for initial configuration");
   this->setMode(PowerDown);
 
+  ESP_LOGD(TAG, "Reading current configuration from radio");
   this->readConfigRegisters();
 
+  ESP_LOGD(TAG, "Setting up radio configuration for Zehnder protocol");
   this->_config.band = true;
   this->_config.channel = 118;
 
@@ -59,14 +79,16 @@ void nRF905::setup() {
   this->_config.clkOutFrequency = ClkOut500000;
   this->_config.clkOutEnable = false;
 
+  ESP_LOGD(TAG, "Writing configuration to radio");
   // Write config back
   this->writeConfigRegisters();
   this->writeTxAddress(0x89816EA9);
 
   // Return to idle
+  ESP_LOGD(TAG, "Setting radio to idle mode");
   this->setMode(Idle);
 
-  ESP_LOGD(TAG, "nRF905 Setup complete");
+  ESP_LOGI(TAG, "nRF905 initialization completed successfully");
 }
 
 void nRF905::dump_config() {
@@ -100,14 +122,18 @@ void nRF905::loop() {
 
       // Read data
       this->readRxPayload(buffer, NRF905_MAX_FRAMESIZE);
-      ESP_LOGV(TAG, "RX Complete: %s", hexArrayToStr(buffer, NRF905_MAX_FRAMESIZE));
+      ESP_LOGI(TAG, "RX Complete: received %d bytes", NRF905_MAX_FRAMESIZE);
+      ESP_LOGV(TAG, "RX data: %s", hexArrayToStr(buffer, NRF905_MAX_FRAMESIZE));
 
       if (this->onRxComplete != NULL) {
         this->onRxComplete(buffer, NRF905_MAX_FRAMESIZE);
+      } else {
+        ESP_LOGW(TAG, "RX complete but no callback registered");
       }
     } else if (state == (1 << NRF905_STATUS_DR)) {
       addrMatch = false;
 
+      ESP_LOGI(TAG, "TX Complete: transmission finished successfully");
       // ESP_LOGD(TAG, "TX Ready; retransmits: %u", this->retransmitCounter);
       // if (this->retransmitCounter > 0) {
       //   --this->retransmitCounter;
@@ -116,17 +142,19 @@ void nRF905::loop() {
 
       if (this->onTxReady != NULL) {
         this->onTxReady();
+      } else {
+        ESP_LOGW(TAG, "TX ready but no callback registered");
       }
       // }
     } else if (state == (1 << NRF905_STATUS_AM)) {
       addrMatch = true;
-      ESP_LOGD(TAG, "Addr match");
+      ESP_LOGD(TAG, "Address match detected");
 
       // if (onAddrMatch != NULL)
       //   onAddrMatch(this);
     } else if (state == 0 && addrMatch) {
       addrMatch = false;
-      ESP_LOGD(TAG, "Rx Invalid");
+      ESP_LOGD(TAG, "RX Invalid: address matched but data invalid");
       // if (onRxInvalid != NULL)
       //   onRxInvalid(this);
     }
@@ -138,14 +166,19 @@ void nRF905::loop() {
 }
 
 void nRF905::setMode(const Mode mode) {
+  const char* mode_names[] = {"PowerDown", "Idle", "Receive", "Transmit"};
+  ESP_LOGD(TAG, "Setting mode from %s to %s", mode_names[this->_mode], mode_names[mode]);
+  
   // Set power
   switch (mode) {
     case PowerDown:
       this->_gpio_pin_pwr->digital_write(false);
+      ESP_LOGV(TAG, "Power down - PWR pin set LOW");
       break;
 
     default:
       this->_gpio_pin_pwr->digital_write(true);
+      ESP_LOGV(TAG, "Power up - PWR pin set HIGH");
       break;
   }
 
@@ -154,10 +187,12 @@ void nRF905::setMode(const Mode mode) {
     case Receive:  // fall through
     case Transmit:
       this->_gpio_pin_ce->digital_write(true);
+      ESP_LOGV(TAG, "CE pin set HIGH for RX/TX mode");
       break;
 
     default:
       this->_gpio_pin_ce->digital_write(false);
+      ESP_LOGV(TAG, "CE pin set LOW for standby");
       break;
   }
 
@@ -165,14 +200,17 @@ void nRF905::setMode(const Mode mode) {
   switch (mode) {
     case Transmit:
       this->_gpio_pin_txen->digital_write(true);
+      ESP_LOGV(TAG, "TXEN pin set HIGH for transmit");
       break;
 
     default:
       this->_gpio_pin_txen->digital_write(false);
+      ESP_LOGV(TAG, "TXEN pin set LOW");
       break;
   }
 
   this->_mode = mode;
+  ESP_LOGI(TAG, "Mode successfully changed to %s", mode_names[mode]);
 }
 
 void nRF905::updateConfig(Config *config, uint8_t *const pStatus) {
@@ -528,14 +566,20 @@ bool nRF905::airwayBusy(void) {
 
   if (this->_gpio_pin_cd != NULL) {
     busy = this->_gpio_pin_cd->digital_read() == true;
+    ESP_LOGV(TAG, "Airway status: %s (CD pin: %s)", busy ? "BUSY" : "free", busy ? "HIGH" : "LOW");
+  } else {
+    ESP_LOGV(TAG, "Airway status: free (no CD pin configured)");
   }
 
   return busy;
 }
 
 void nRF905::startTx(const uint32_t retransmit, const Mode nextMode) {
+  ESP_LOGI(TAG, "Starting transmission (retransmit: %u, next mode: %d)", retransmit, nextMode);
+  
   bool update = false;
   if (this->_mode == PowerDown) {
+    ESP_LOGD(TAG, "Radio was powered down, bringing up and waiting for stabilization");
     this->setMode(Idle);
     delay(3);  // Delay is needed to the radio has time to power-up and see the standby/TX pins pulse
   }
@@ -553,10 +597,12 @@ void nRF905::startTx(const uint32_t retransmit, const Mode nextMode) {
   update = true;
   // }
   if (update == true) {
+    ESP_LOGD(TAG, "Updating config registers for transmission");
     this->writeConfigRegisters();
   }
 
   // Start transmit
+  ESP_LOGD(TAG, "Switching to transmit mode");
   this->setMode(Transmit);
 }
 
