@@ -71,12 +71,13 @@ static int clamp_voltage(const int value) {
   // This prevents invalid/corrupted RF data from causing extreme percentage values
   // in Home Assistant (e.g., ±1.5 billion % as reported in issue #18)
   if (value < 0) {
-    ESP_LOGW(TAG, "Invalid voltage value %i clamped to 0", value);
+    ESP_LOGW(TAG, "Invalid voltage value %i detected (possible RF corruption), clamping to 0%%", value);
     return 0;
   } else if (value > 100) {
-    ESP_LOGW(TAG, "Invalid voltage value %i clamped to 100", value);
+    ESP_LOGW(TAG, "Invalid voltage value %i detected (possible RF corruption), clamping to 100%%", value);
     return 100;
   } else {
+    ESP_LOGV(TAG, "Voltage value %i%% is within valid range", value);
     return value;
   }
 }
@@ -311,18 +312,27 @@ void ZehnderRF::rfHandleReceived(const uint8_t *const pData, const uint8_t dataL
   RfFrame *const pTxFrame = (RfFrame *) this->_txFrame;  // frame helper
   nrf905::Config rfConfig;
 
-  ESP_LOGD(TAG, "Current state: 0x%02X", this->state_);
+  ESP_LOGD(TAG, "Processing received RF frame in state: %d (data length: %u)", this->state_, dataLength);
+  
+  // Log basic frame info
+  ESP_LOGV(TAG, "Frame: from 0x%02X:0x%02X to 0x%02X:0x%02X, cmd=0x%02X, ttl=%u", 
+           pResponse->tx_type, pResponse->tx_id, pResponse->rx_type, pResponse->rx_id,
+           pResponse->command, pResponse->ttl);
+
   switch (this->state_) {
     case StateDiscoveryWaitForLinkRequest:
-      ESP_LOGD(TAG, "DiscoverStateWaitForLinkRequest");
+      ESP_LOGD(TAG, "Processing discovery link request");
       switch (pResponse->command) {
         case FAN_NETWORK_JOIN_OPEN:  // Received linking request from main unit
-          ESP_LOGD(TAG, "Discovery: Found unit type 0x%02X (%s) with ID 0x%02X on network 0x%08X", pResponse->tx_type,
-                   pResponse->tx_type == FAN_TYPE_MAIN_UNIT ? "Main" : "?", pResponse->tx_id,
+          ESP_LOGI(TAG, "Discovery: Found unit type 0x%02X (%s) with ID 0x%02X on network 0x%08X", 
+                   pResponse->tx_type,
+                   pResponse->tx_type == FAN_TYPE_MAIN_UNIT ? "Main Unit" : "Unknown", 
+                   pResponse->tx_id,
                    pResponse->payload.networkJoinOpen.networkId);
 
           this->rfComplete();
 
+          ESP_LOGD(TAG, "Building join request frame for discovered unit");
           (void) memset(this->_txFrame, 0, FAN_FRAMESIZE);  // Clear frame data
 
           // Found a main unit, so send a join request
@@ -337,45 +347,51 @@ void ZehnderRF::rfHandleReceived(const uint8_t *const pData, const uint8_t dataL
           pTxFrame->payload.networkJoinRequest.networkId = pResponse->payload.networkJoinOpen.networkId;
 
           // Store for later
+          ESP_LOGD(TAG, "Storing network configuration for pairing");
           this->config_.fan_networkId = pResponse->payload.networkJoinOpen.networkId;
           this->config_.fan_main_unit_type = pResponse->tx_type;
           this->config_.fan_main_unit_id = pResponse->tx_id;
 
           // Update address
+          ESP_LOGD(TAG, "Updating radio configuration for network 0x%08X", pResponse->payload.networkJoinOpen.networkId);
           rfConfig = this->rf_->getConfig();
           rfConfig.rx_address = pResponse->payload.networkJoinOpen.networkId;
           this->rf_->updateConfig(&rfConfig, NULL);
           this->rf_->writeTxAddress(pResponse->payload.networkJoinOpen.networkId, NULL);
 
           // Send response frame
+          ESP_LOGI(TAG, "Sending join request to main unit");
           this->startTransmit(this->_txFrame, FAN_TX_RETRIES, [this]() {
-            ESP_LOGW(TAG, "Query Timeout");
+            ESP_LOGE(TAG, "Join request timeout - main unit did not respond");
+            ESP_LOGI(TAG, "Restarting discovery process");
             this->state_ = StateStartDiscovery;
           });
 
           this->state_ = StateDiscoveryWaitForJoinResponse;
+          ESP_LOGI(TAG, "Join request sent, waiting for confirmation from main unit");
           break;
 
         default:
-          ESP_LOGD(TAG, "Discovery: Received unknown frame type 0x%02X from ID 0x%02X", pResponse->command,
-                   pResponse->tx_id);
+          ESP_LOGW(TAG, "Discovery: Received unexpected frame type 0x%02X from device 0x%02X:0x%02X", 
+                   pResponse->command, pResponse->tx_type, pResponse->tx_id);
           break;
       }
       break;
 
     case StateDiscoveryWaitForJoinResponse:
-      ESP_LOGD(TAG, "DiscoverStateWaitForJoinResponse");
+      ESP_LOGD(TAG, "Processing join response");
       switch (pResponse->command) {
         case FAN_FRAME_0B:
           if ((pResponse->rx_type == this->config_.fan_my_device_type) &&
               (pResponse->rx_id == this->config_.fan_my_device_id) &&
               (pResponse->tx_type == this->config_.fan_main_unit_type) &&
               (pResponse->tx_id == this->config_.fan_main_unit_id)) {
-            ESP_LOGD(TAG, "Discovery: Link successful to unit with ID 0x%02X on network 0x%08X", pResponse->tx_id,
-                     this->config_.fan_networkId);
+            ESP_LOGI(TAG, "Discovery: Pairing successful! Connected to unit ID 0x%02X on network 0x%08X", 
+                     pResponse->tx_id, this->config_.fan_networkId);
 
             this->rfComplete();
 
+            ESP_LOGD(TAG, "Building network query response");
             (void) memset(this->_txFrame, 0, FAN_FRAMESIZE);  // Clear frame data
 
             pTxFrame->rx_type = FAN_TYPE_MAIN_UNIT;  // Set type to main unit
@@ -538,17 +554,21 @@ uint8_t ZehnderRF::createDeviceID(void) {
   // TODO: there's a 1 in 255 chance that the generated ID matches the ID of the main unit. Decide how to deal
   // withthis (some sort of ping discovery?)
 
-  return minmax(random, 1, 0xFE);
+  uint8_t device_id = minmax(random, 1, 0xFE);
+  ESP_LOGD(TAG, "Generated random device ID: 0x%02X", device_id);
+  return device_id;
 }
 
 void ZehnderRF::queryDevice(void) {
   RfFrame *const pFrame = (RfFrame *) this->_txFrame;  // frame helper
 
-  ESP_LOGD(TAG, "Query device");
+  ESP_LOGD(TAG, "Querying fan device for status update");
 
   this->lastFanQuery_ = millis();  // Update time
+  ESP_LOGV(TAG, "Updated last query timestamp to %lu", this->lastFanQuery_);
 
   // Clear frame data
+  ESP_LOGV(TAG, "Building device query frame");
   (void) memset(this->_txFrame, 0, FAN_FRAMESIZE);
 
   // Build frame
@@ -559,9 +579,12 @@ void ZehnderRF::queryDevice(void) {
   pFrame->ttl = FAN_TTL;
   pFrame->command = FAN_TYPE_QUERY_DEVICE;
   pFrame->parameter_count = 0x00;  // No parameters
+  
+  ESP_LOGV(TAG, "Query frame: to 0x%02X:0x%02X from 0x%02X:0x%02X", 
+           pFrame->rx_type, pFrame->rx_id, pFrame->tx_type, pFrame->tx_id);
 
   this->startTransmit(this->_txFrame, FAN_TX_RETRIES, [this]() {
-    ESP_LOGW(TAG, "Query Timeout");
+    ESP_LOGW(TAG, "Device query timeout - fan unit not responding");
     this->state_ = StateIdle;
   });
 
@@ -692,26 +715,32 @@ Result ZehnderRF::startTransmit(const uint8_t *const pData, const int8_t rxRetri
   bool busy = true;
 
   if (this->rfState_ != RfStateIdle) {
-    ESP_LOGW(TAG, "TX still ongoing");
+    ESP_LOGW(TAG, "Cannot start transmission - RF handler is busy (state: %d)", this->rfState_);
     result = ResultBusy;
   } else {
+    ESP_LOGD(TAG, "Starting RF transmission (retries: %d)", rxRetries);
+    
     this->onReceiveTimeout_ = callback;
     this->retries_ = rxRetries;
 
     // Write data to RF
     // if (pData != NULL) {  // If frame given, load it in the nRF. Else use previous TX payload
-    // ESP_LOGD(TAG, "Write payload");
+    ESP_LOGV(TAG, "Writing %d bytes to RF transmit buffer", FAN_FRAMESIZE);
     this->rf_->writeTxPayload(pData, FAN_FRAMESIZE);  // Use framesize
     // }
 
     this->rfState_ = RfStateWaitAirwayFree;
     this->airwayFreeWaitTime_ = millis();
+    this->msgSendTime_ = millis();  // Track when we started the transmission
+    
+    ESP_LOGD(TAG, "RF transmission initiated, waiting for clear airway");
   }
 
   return result;
 }
 
 void ZehnderRF::rfComplete(void) {
+  ESP_LOGD(TAG, "RF operation completed successfully");
   this->retries_ = -1;  // Disable this->retries_
   this->rfState_ = RfStateIdle;
 }
