@@ -184,6 +184,9 @@ void ZehnderRF::dump_config(void) {
   ESP_LOGCONFIG(TAG, "  Fan my device id   0x%02X", this->config_.fan_my_device_id);
   ESP_LOGCONFIG(TAG, "  Fan main_unit type 0x%02X", this->config_.fan_main_unit_type);
   ESP_LOGCONFIG(TAG, "  Fan main unit id   0x%02X", this->config_.fan_main_unit_id);
+  ESP_LOGCONFIG(TAG, "Connection Status Sensor:");
+  ESP_LOGCONFIG(TAG, "  Health timeout     %u ms", this->interval_ * 5);
+  ESP_LOGCONFIG(TAG, "  Failure threshold  3 consecutive timeouts");
 }
 
 void ZehnderRF::set_config(const uint32_t fan_networkId,
@@ -248,6 +251,9 @@ void ZehnderRF::loop(void) {
           this->queryDevice();
         }
       }
+      
+      // Periodic health check - if no successful communication for too long, mark as unhealthy
+      this->check_connection_health();
       break;
 
     case StateWaitSetSpeedConfirm:
@@ -726,6 +732,20 @@ void ZehnderRF::update_connection_status(bool success) {
     if (this->consecutive_timeouts_ >= 3 && this->connection_healthy_) {
       this->connection_healthy_ = false;
       ESP_LOGW(TAG, "Connection to ventilation system lost after %u consecutive failures", this->consecutive_timeouts_);
+    }
+  }
+}
+
+void ZehnderRF::check_connection_health() {
+  // If we haven't had successful communication in too long, mark as unhealthy
+  // Allow some grace time beyond the normal query interval
+  uint32_t health_timeout = this->interval_ * 5; // 5x the query interval
+  
+  if (this->connection_healthy_ && this->last_successful_communication_ != 0) {
+    if ((millis() - this->last_successful_communication_) > health_timeout) {
+      this->connection_healthy_ = false;
+      ESP_LOGW(TAG, "Connection to ventilation system timed out (no successful communication for %u ms)", 
+               millis() - this->last_successful_communication_);
     }
   }
 }

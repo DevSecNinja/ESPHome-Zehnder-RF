@@ -163,6 +163,7 @@ class ZehnderRF : public Component, public fan::Fan {
 
  protected:
   void update_connection_status(bool success);
+  void check_connection_health();
 };
 
 }  // namespace zehnder
