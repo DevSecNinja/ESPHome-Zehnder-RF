@@ -518,6 +518,7 @@ void ZehnderRF::queryDevice(void) {
 
   this->startTransmit(this->_txFrame, FAN_TX_RETRIES, [this]() {
     ESP_LOGW(TAG, "Device query timeout, returning to idle state");
+    this->update_connection_status(false);
     this->state_ = StateIdle;
   });
 
@@ -570,6 +571,7 @@ void ZehnderRF::setSpeed(const uint8_t paramSpeed, const uint8_t paramTimer) {
 
     this->startTransmit(this->_txFrame, FAN_TX_RETRIES, [this]() {
       ESP_LOGW(TAG, "Set speed timeout, returning to idle state");
+      this->update_connection_status(false);
       this->state_ = StateIdle;
     });
 
@@ -648,6 +650,9 @@ Result ZehnderRF::startTransmit(const uint8_t *const pData, const int8_t rxRetri
 void ZehnderRF::rfComplete(void) {
   this->retries_ = -1;  // Disable this->retries_
   this->rfState_ = RfStateIdle;
+  
+  // Update connection status on successful communication
+  this->update_connection_status(true);
 }
 
 void ZehnderRF::rfHandler(void) {
@@ -700,6 +705,28 @@ void ZehnderRF::rfHandler(void) {
 
     default:
       break;
+  }
+}
+
+void ZehnderRF::update_connection_status(bool success) {
+  if (success) {
+    this->last_successful_communication_ = millis();
+    this->consecutive_timeouts_ = 0;
+    
+    // If we were unhealthy, we're now healthy
+    if (!this->connection_healthy_) {
+      this->connection_healthy_ = true;
+      ESP_LOGI(TAG, "Connection to ventilation system restored");
+    }
+  } else {
+    this->consecutive_timeouts_++;
+    ESP_LOGW(TAG, "Communication timeout (%u consecutive failures)", this->consecutive_timeouts_);
+    
+    // Consider connection unhealthy after 3 consecutive timeouts
+    if (this->consecutive_timeouts_ >= 3 && this->connection_healthy_) {
+      this->connection_healthy_ = false;
+      ESP_LOGW(TAG, "Connection to ventilation system lost after %u consecutive failures", this->consecutive_timeouts_);
+    }
   }
 }
 

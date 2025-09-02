@@ -4,12 +4,10 @@ from esphome.components import fan
 from esphome.const import CONF_ID, CONF_UPDATE_INTERVAL
 
 from esphome.components.nrf905 import nRF905Component
+from . import zehnder_ns, ZehnderRF
 
 
 DEPENDENCIES = ["nrf905"]
-
-zehnder_ns = cg.esphome_ns.namespace("zehnder")
-ZehnderRF = zehnder_ns.class_("ZehnderRF", fan.FanState)
 
 CONF_NRF905 = "nrf905"
 

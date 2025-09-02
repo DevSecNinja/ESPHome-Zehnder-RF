@@ -90,6 +90,9 @@ class ZehnderRF : public Component, public fan::Fan {
   bool timer;
   int voltage;
 
+  // Connection health status (public for template sensors)
+  bool connection_healthy_{true};
+
  protected:
   void queryDevice(void);
 
@@ -153,6 +156,13 @@ class ZehnderRF : public Component, public fan::Fan {
     RfStateRxWait,
   } RfState;
   RfState rfState_{RfStateIdle};
+
+  // Private connection health tracking variables
+  uint32_t last_successful_communication_{0};
+  uint32_t consecutive_timeouts_{0};
+
+ protected:
+  void update_connection_status(bool success);
 };
 
 }  // namespace zehnder
