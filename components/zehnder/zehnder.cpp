@@ -534,7 +534,7 @@ void ZehnderRF::setSpeed(const uint8_t paramSpeed, const uint8_t paramTimer) {
     speed = this->speed_count_;
   }
 
-  ESP_LOGD(TAG, "Set speed: 0x%02X; Timer %u minutes", speed, timer);
+  ESP_LOGI(TAG, "Set speed: 0x%02X; Timer %u minutes", speed, timer);
 
   if (this->state_ == StateIdle) {
     (void) memset(this->_txFrame, 0, FAN_FRAMESIZE);  // Clear frame data
