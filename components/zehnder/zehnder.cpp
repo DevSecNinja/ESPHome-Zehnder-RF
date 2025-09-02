@@ -575,6 +575,9 @@ void ZehnderRF::setSpeed(const uint8_t paramSpeed, const uint8_t paramTimer) {
       pFrame->payload.setTimer.timer = timer;
     }
 
+    ESP_LOGD(TAG, "Waiting for initial RF stabilization...");
+    delay(500);  // Wait 500ms for RF to stabilize
+
     this->startTransmit(this->_txFrame, FAN_TX_RETRIES, [this]() {
       ESP_LOGW(TAG, "Set speed timeout, returning to idle state");
       this->update_connection_status(false);
