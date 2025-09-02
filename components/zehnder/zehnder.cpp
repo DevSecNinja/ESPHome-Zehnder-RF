@@ -119,7 +119,7 @@ void ZehnderRF::setup() {
   uint32_t hash = fnv1_hash("zehnderrf");
   this->pref_ = global_preferences->make_preference<Config>(hash, true);
   if (this->pref_.load(&this->config_)) {
-    ESP_LOGD(TAG, "Config load ok");
+    ESP_LOGD(TAG, "Configuration loaded successfully");
   }
 
   // Set nRF905 config
@@ -157,7 +157,7 @@ void ZehnderRF::setup() {
   this->speed_count_ = 4;
 
   this->rf_->setOnTxReady([this](void) {
-    ESP_LOGD(TAG, "Tx Ready");
+    ESP_LOGD(TAG, "TX ready");
     if (this->rfState_ == RfStateTxBusy) {
       if (this->retries_ >= 0) {
         this->msgSendTime_ = millis();
@@ -194,7 +194,7 @@ void ZehnderRF::set_config(const uint32_t fan_networkId,
   this->config_.fan_my_device_id   = fan_my_device_id;   // Fan (Zehnder/BUVA) device ID
   this->config_.fan_main_unit_type = fan_main_unit_type; // Fan (Zehnder/BUVA) main unit type
   this->config_.fan_main_unit_id   = fan_main_unit_id;   // Fan (Zehnder/BUVA) main unit ID
-  ESP_LOGD(TAG, "Saving pairing config");
+  ESP_LOGD(TAG, "Saving pairing configuration");
   this->pref_.save(&this->config_);
 }
 
@@ -213,11 +213,11 @@ void ZehnderRF::loop(void) {
         if ((this->config_.fan_networkId == 0x00000000) || (this->config_.fan_my_device_type == 0) ||
             (this->config_.fan_my_device_id == 0) || (this->config_.fan_main_unit_type == 0) ||
             (this->config_.fan_main_unit_id == 0)) {
-          ESP_LOGD(TAG, "Invalid config, start paring");
+          ESP_LOGD(TAG, "Invalid config, starting pairing");
 
           this->state_ = StateStartDiscovery;
         } else {
-          ESP_LOGD(TAG, "Config data valid, start polling");
+          ESP_LOGD(TAG, "Configuration data valid, starting polling");
 
           rfConfig = this->rf_->getConfig();
           rfConfig.rx_address = this->config_.fan_networkId;
@@ -266,7 +266,7 @@ void ZehnderRF::rfHandleReceived(const uint8_t *const pData, const uint8_t dataL
   ESP_LOGD(TAG, "Current state: 0x%02X", this->state_);
   switch (this->state_) {
     case StateDiscoveryWaitForLinkRequest:
-      ESP_LOGD(TAG, "DiscoverStateWaitForLinkRequest");
+      ESP_LOGD(TAG, "Discovery state: waiting for link request");
       switch (pResponse->command) {
         case FAN_NETWORK_JOIN_OPEN:  // Received linking request from main unit
           ESP_LOGD(TAG, "Discovery: Found unit type 0x%02X (%s) with ID 0x%02X on network 0x%08X", pResponse->tx_type,
@@ -301,7 +301,7 @@ void ZehnderRF::rfHandleReceived(const uint8_t *const pData, const uint8_t dataL
 
           // Send response frame
           this->startTransmit(this->_txFrame, FAN_TX_RETRIES, [this]() {
-            ESP_LOGW(TAG, "Query Timeout");
+            ESP_LOGW(TAG, "Discovery query timeout, restarting discovery");
             this->state_ = StateStartDiscovery;
           });
 
@@ -316,7 +316,7 @@ void ZehnderRF::rfHandleReceived(const uint8_t *const pData, const uint8_t dataL
       break;
 
     case StateDiscoveryWaitForJoinResponse:
-      ESP_LOGD(TAG, "DiscoverStateWaitForJoinResponse");
+      ESP_LOGD(TAG, "Discovery state: waiting for join response");
       switch (pResponse->command) {
         case FAN_FRAME_0B:
           if ((pResponse->rx_type == this->config_.fan_my_device_type) &&
@@ -342,7 +342,7 @@ void ZehnderRF::rfHandleReceived(const uint8_t *const pData, const uint8_t dataL
 
             // Send response frame
             this->startTransmit(this->_txFrame, FAN_TX_RETRIES, [this]() {
-              ESP_LOGW(TAG, "Query Timeout");
+              ESP_LOGW(TAG, "Join response timeout, restarting discovery");
               this->state_ = StateStartDiscovery;
             });
 
@@ -361,7 +361,7 @@ void ZehnderRF::rfHandleReceived(const uint8_t *const pData, const uint8_t dataL
       break;
 
     case StateDiscoveryJoinComplete:
-      ESP_LOGD(TAG, "StateDiscoveryJoinComplete");
+      ESP_LOGD(TAG, "Discovery state: join complete");
       switch (pResponse->command) {
         case FAN_TYPE_QUERY_NETWORK:
           if ((pResponse->rx_type == this->config_.fan_main_unit_type) &&
@@ -372,7 +372,7 @@ void ZehnderRF::rfHandleReceived(const uint8_t *const pData, const uint8_t dataL
 
             this->rfComplete();
 
-            ESP_LOGD(TAG, "Saving pairing config");
+            ESP_LOGD(TAG, "Saving pairing configuration");
             this->pref_.save(&this->config_);
 
             this->state_ = StateIdle;
@@ -513,7 +513,7 @@ void ZehnderRF::queryDevice(void) {
   pFrame->parameter_count = 0x00;  // No parameters
 
   this->startTransmit(this->_txFrame, FAN_TX_RETRIES, [this]() {
-    ESP_LOGW(TAG, "Query Timeout");
+    ESP_LOGW(TAG, "Device query timeout, returning to idle state");
     this->state_ = StateIdle;
   });
 
@@ -564,7 +564,7 @@ void ZehnderRF::setSpeed(const uint8_t paramSpeed, const uint8_t paramTimer) {
     }
 
     this->startTransmit(this->_txFrame, FAN_TX_RETRIES, [this]() {
-      ESP_LOGW(TAG, "Set speed timeout");
+      ESP_LOGW(TAG, "Set speed timeout, returning to idle state");
       this->state_ = StateIdle;
     });
 
@@ -607,7 +607,7 @@ void ZehnderRF::discoveryStart(const uint8_t deviceId) {
   this->rf_->writeTxAddress(NETWORK_LINK_ID, NULL);
 
   this->startTransmit(this->_txFrame, FAN_TX_RETRIES, [this]() {
-    ESP_LOGW(TAG, "Start discovery timeout");
+    ESP_LOGW(TAG, "Discovery start timeout, retrying");
     this->state_ = StateStartDiscovery;
   });
 
@@ -630,7 +630,6 @@ Result ZehnderRF::startTransmit(const uint8_t *const pData, const int8_t rxRetri
 
     // Write data to RF
     // if (pData != NULL) {  // If frame given, load it in the nRF. Else use previous TX payload
-    // ESP_LOGD(TAG, "Write payload");
     this->rf_->writeTxPayload(pData, FAN_FRAMESIZE);  // Use framesize
     // }
 

@@ -108,7 +108,6 @@ void nRF905::loop() {
     } else if (state == (1 << NRF905_STATUS_DR)) {
       addrMatch = false;
 
-      // ESP_LOGD(TAG, "TX Ready; retransmits: %u", this->retransmitCounter);
       // if (this->retransmitCounter > 0) {
       //   --this->retransmitCounter;
       // } else {
@@ -500,7 +499,7 @@ void nRF905::printConfig(const Config *const pConfig) {
       break;
 
     default:
-      ESP_LOGD(TAG, "Unvalid clock freq");
+      ESP_LOGD(TAG, "Invalid clock frequency");
       break;
   }
 
