@@ -703,6 +703,9 @@ void ZehnderRF::rfHandler(void) {
             this->onReceiveTimeout_();
           }
 
+          // Add a longer delay before moving to idle
+          delay(250);
+
           // Back to idle
           this->rfState_ = RfStateIdle;
         }
