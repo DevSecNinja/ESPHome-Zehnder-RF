@@ -696,6 +696,9 @@ void ZehnderRF::rfHandler(void) {
           --this->retries_;
           ESP_LOGD(TAG, "No response received, retrying (%u attempts remaining)", this->retries_);
 
+          // Add a short delay between retries
+          delay(150);
+
           this->rfState_ = RfStateWaitAirwayFree;
           this->airwayFreeWaitTime_ = millis();
         } else if (this->retries_ == 0) {
