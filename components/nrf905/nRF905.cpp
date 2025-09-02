@@ -15,7 +15,7 @@ nRF905::nRF905(void) {}
 void nRF905::setup() {
   Config config;
 
-  ESP_LOGD(TAG, "Start nRF905 init");
+  ESP_LOGD(TAG, "Starting nRF905 initialization");
 
   this->spi_setup();
   if (this->_gpio_pin_am != NULL) {
@@ -66,11 +66,11 @@ void nRF905::setup() {
   // Return to idle
   this->setMode(Idle);
 
-  ESP_LOGD(TAG, "nRF905 Setup complete");
+  ESP_LOGD(TAG, "nRF905 setup complete");
 }
 
 void nRF905::dump_config() {
-  ESP_LOGCONFIG(TAG, "Config:");
+  ESP_LOGCONFIG(TAG, "nRF905 Configuration:");
 
   LOG_PIN("  CS Pin:", this->cs_);
   if (this->_gpio_pin_am != NULL) {
@@ -108,7 +108,6 @@ void nRF905::loop() {
     } else if (state == (1 << NRF905_STATUS_DR)) {
       addrMatch = false;
 
-      // ESP_LOGD(TAG, "TX Ready; retransmits: %u", this->retransmitCounter);
       // if (this->retransmitCounter > 0) {
       //   --this->retransmitCounter;
       // } else {
@@ -120,13 +119,13 @@ void nRF905::loop() {
       // }
     } else if (state == (1 << NRF905_STATUS_AM)) {
       addrMatch = true;
-      ESP_LOGD(TAG, "Addr match");
+      ESP_LOGD(TAG, "Address match detected");
 
       // if (onAddrMatch != NULL)
       //   onAddrMatch(this);
     } else if (state == 0 && addrMatch) {
       addrMatch = false;
-      ESP_LOGD(TAG, "Rx Invalid");
+      ESP_LOGD(TAG, "Invalid RX data received");
       // if (onRxInvalid != NULL)
       //   onRxInvalid(this);
     }
@@ -240,9 +239,9 @@ void nRF905::writeConfigRegisters(uint8_t *const pStatus) {
 
     this->spiTransfer((uint8_t *) &bufferRead, sizeof(ConfigBuffer));
     if (memcmp((void *) writeData, (void *) bufferRead.data, NRF905_REGISTER_COUNT) != 0) {
-      ESP_LOGE(TAG, "Config write failed");
+      ESP_LOGE(TAG, "Configuration write verification failed");
     } else {
-      ESP_LOGV(TAG, "Write config OK");
+      ESP_LOGV(TAG, "Configuration write successful");
     }
   }
 #endif
@@ -500,7 +499,7 @@ void nRF905::printConfig(const Config *const pConfig) {
       break;
 
     default:
-      ESP_LOGD(TAG, "Unvalid clock freq");
+      ESP_LOGD(TAG, "Invalid clock frequency");
       break;
   }
 
