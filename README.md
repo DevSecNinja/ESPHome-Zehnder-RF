@@ -45,3 +45,39 @@ GitHub Actions automatically runs tests on:
 2. Generate a secure API key: `openssl rand -base64 32`
 3. Modify GPIO pins in the configuration as needed for your setup
 
+### Connection Status Monitoring
+
+The Zehnder component includes a built-in connection health monitor that tracks communication with the ventilation system. This helps identify when RF communication issues occur.
+
+#### How it works:
+- **Healthy**: Shows `ON` when communication is working normally
+- **Unhealthy**: Shows `OFF` after 3 consecutive communication failures or when no successful communication occurs for 5x the polling interval
+
+#### Configuration:
+Add this to your `binary_sensor` section:
+
+```yaml
+binary_sensor:
+  - platform: template
+    name: "Zehnder ComfoFan Connection Status"
+    device_class: connectivity
+    entity_category: diagnostic
+    icon: mdi:wifi-check
+    lambda: 'return id(zehnder_comfofan_ventilation)->connection_healthy_;'
+```
+
+#### Home Assistant Automation Example:
+```yaml
+automation:
+  - alias: "Zehnder Connection Alert"
+    trigger:
+      platform: state
+      entity_id: binary_sensor.zehnder_comfofan_connection_status
+      to: 'off'
+      for: '00:01:00'  # Wait 1 minute to avoid false alarms
+    action:
+      service: notify.mobile_app_your_device
+      data:
+        message: "⚠️ Zehnder ventilation system connection lost!"
+```
+
