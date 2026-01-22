@@ -15,7 +15,7 @@ jobs:
         python-version: [3.13]
 
     steps:
-    - uses: actions/checkout@v5
+    - uses: actions/checkout@v6
 
     - name: Set up Python ${{ matrix.python-version }}
       uses: actions/setup-python@v6
@@ -58,7 +58,7 @@ jobs:
     timeout-minutes: 90  # Allow up to 90 minutes for compilation
 
     steps:
-    - uses: actions/checkout@v5
+    - uses: actions/checkout@v6
 
     - name: Set up Python
       uses: actions/setup-python@v6
