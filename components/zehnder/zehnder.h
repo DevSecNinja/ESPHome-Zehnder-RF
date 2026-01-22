@@ -4,7 +4,7 @@
 #include "esphome/core/component.h"
 #include "esphome/core/hal.h"
 #include "esphome/components/spi/spi.h"
-#include "esphome/components/fan/fan_state.h"
+#include "esphome/components/fan/fan.h"
 #include "esphome/components/nrf905/nRF905.h"
 
 namespace esphome {

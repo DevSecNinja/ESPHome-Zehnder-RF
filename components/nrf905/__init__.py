@@ -14,7 +14,7 @@ CONF_TXEN_PIN = "txen_pin"
 DEPENDENCIES = ["spi"]
 
 nrf905_ns = cg.esphome_ns.namespace("nrf905")
-nRF905Component = nrf905_ns.class_("nRF905", fan.FanState)
+nRF905Component = nrf905_ns.class_("nRF905", fan.Fan, cg.PollingComponent)
 
 CONFIG_SCHEMA = (
     cv.Schema(
