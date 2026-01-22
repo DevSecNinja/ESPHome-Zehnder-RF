@@ -575,6 +575,9 @@ void ZehnderRF::setSpeed(const uint8_t paramSpeed, const uint8_t paramTimer) {
       pFrame->payload.setTimer.timer = timer;
     }
 
+    ESP_LOGD(TAG, "Waiting for initial RF stabilization...");
+    delay(500);  // Wait 500ms for RF to stabilize
+
     this->startTransmit(this->_txFrame, FAN_TX_RETRIES, [this]() {
       ESP_LOGW(TAG, "Set speed timeout, returning to idle state");
       this->update_connection_status(false);
@@ -693,6 +696,9 @@ void ZehnderRF::rfHandler(void) {
           --this->retries_;
           ESP_LOGD(TAG, "No response received, retrying (%u attempts remaining)", this->retries_);
 
+          // Add a short delay between retries
+          delay(150);
+
           this->rfState_ = RfStateWaitAirwayFree;
           this->airwayFreeWaitTime_ = millis();
         } else if (this->retries_ == 0) {
@@ -702,6 +708,9 @@ void ZehnderRF::rfHandler(void) {
           if (this->onReceiveTimeout_ != NULL) {
             this->onReceiveTimeout_();
           }
+
+          // Add a longer delay before moving to idle
+          delay(250);
 
           // Back to idle
           this->rfState_ = RfStateIdle;
