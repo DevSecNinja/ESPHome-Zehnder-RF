@@ -1,6 +1,6 @@
 # ESPHome-Zehnder-RF
 
-I'm using an ESP32 board with an nRF905 antenna to control a Zehnder ComfoFan S. Make sure to follow the PIN structure. See my actual `utility-bridge.yaml` file in my [Home Assistant repository](https://github.com/DevSecNinja/home-assistant-config/blob/main/esphome/zehnder-rf.yaml).
+I'm using an ESP32 board with an nRF905 antenna to control a Zehnder ComfoFan S. Make sure to follow the PIN structure. See my actual `utility-bridge.yaml` file in my [Home Assistant repository]([https://github.com/DevSecNinja/home-assistant-config/blob/main/esphome/zehnder-rf.yaml](https://github.com/DevSecNinja/home-assistant-config/blob/main/esphome/ventilation.yaml)) where I use it as a component.
 
 ## Fork notes
 
@@ -9,6 +9,7 @@ I'm using an ESP32 board with an nRF905 antenna to control a Zehnder ComfoFan S.
 ### Known issues
 
 There are a bunch of known issues either related to the base program, the fork or my config. I'll keep them documented under the issues section.
+
 
 ## Configuration
 
