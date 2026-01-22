@@ -12,7 +12,7 @@ jobs:
     strategy:
       matrix:
         # renovate: datasource=python-version
-        python-version: [3.13]
+        python-version: [3.14]
 
     steps:
     - uses: actions/checkout@v5
@@ -64,7 +64,7 @@ jobs:
       uses: actions/setup-python@v6
       with:
         # renovate: datasource=python-version
-        python-version: 3.13
+        python-version: 3.14
 
     - name: Cache pip packages
       uses: actions/cache@v4
