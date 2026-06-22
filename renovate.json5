@@ -13,24 +13,4 @@
     "github>DevSecNinja/.github//.renovate/packageRules.json5",
     "github>DevSecNinja/.github//.renovate/semanticCommits.json5",
   ],
-  customManagers: [
-    {
-      customType: "regex",
-      description: "Track Python version matrix in GitHub Actions workflows",
-      managerFilePatterns: ["/^\\.github/workflows/test\\.yml$/"],
-      matchStrings: [
-        "python-version: \\[(?<currentValue>[^\\]]+)\\]",
-        "python-version: (?<currentValue>\\d+\\.\\d+)",
-      ],
-      depNameTemplate: "python",
-      datasourceTemplate: "python-version",
-    },
-  ],
-  packageRules: [
-    {
-      matchDepNames: ["python"],
-      matchDatasources: ["python-version"],
-      rangeStrategy: "replace",
-    },
-  ],
 }
