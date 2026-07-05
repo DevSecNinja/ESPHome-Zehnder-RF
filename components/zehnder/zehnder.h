@@ -69,6 +69,10 @@ class ZehnderRF : public Component, public fan::Fan {
 
   void set_update_interval(const uint32_t interval) { interval_ = interval; }
 
+  // When enabled, the component does not pair, poll or transmit. It parks the nRF905 in
+  // receive mode and logs every frame heard on the fan network (see the RF capture guide).
+  void set_sniffer_mode(const bool enable) { sniffer_mode_ = enable; }
+
   void dump_config() override;
   void set_config(const uint32_t fan_networkId,
                   const uint8_t  fan_my_device_type,
@@ -99,6 +103,7 @@ class ZehnderRF : public Component, public fan::Fan {
 
  protected:
   void queryDevice(void);
+  void startSniffer(void);
 
   uint8_t createDeviceID(void);
   void discoveryStart(const uint8_t deviceId);
@@ -121,6 +126,8 @@ class ZehnderRF : public Component, public fan::Fan {
     StateWaitSetSpeedResponse,
     StateWaitSetSpeedConfirm,
 
+    StateSniffer,  // Passive capture: radio parked in RX, no TX/polling
+
     StateNrOf  // Keep last
   } State;
   State state_{StateStartup};
@@ -128,6 +135,7 @@ class ZehnderRF : public Component, public fan::Fan {
 
   nrf905::nRF905 *rf_;
   uint32_t interval_;
+  bool sniffer_mode_{false};
 
   uint8_t _txFrame[FAN_FRAMESIZE];
 

@@ -189,6 +189,7 @@ void ZehnderRF::setup() {
 void ZehnderRF::dump_config(void) {
   ESP_LOGCONFIG(TAG, "Zehnder Fan config:");
   ESP_LOGCONFIG(TAG, "  Polling interval   %u", this->interval_);
+  ESP_LOGCONFIG(TAG, "  Sniffer mode       %s", this->sniffer_mode_ ? "ON (passive capture, no control)" : "off");
   ESP_LOGCONFIG(TAG, "  Fan networkId      0x%08X", this->config_.fan_networkId);
   ESP_LOGCONFIG(TAG, "  Fan my device type 0x%02X", this->config_.fan_my_device_type);
   ESP_LOGCONFIG(TAG, "  Fan my device id   0x%02X", this->config_.fan_my_device_id);
@@ -224,6 +225,12 @@ void ZehnderRF::loop(void) {
     case StateStartup:
       // Wait until started up
       if (millis() > 15000) {
+        // Sniffer mode: skip pairing/polling entirely and just listen.
+        if (this->sniffer_mode_) {
+          this->startSniffer();
+          break;
+        }
+
         // Discovery?
         if ((this->config_.fan_networkId == 0x00000000) || (this->config_.fan_my_device_type == 0) ||
             (this->config_.fan_my_device_id == 0) || (this->config_.fan_main_unit_type == 0) ||
@@ -275,6 +282,11 @@ void ZehnderRF::loop(void) {
         // When done, return to idle
         this->state_ = StateIdle;
       }
+
+    case StateSniffer:
+      // Passive capture only: the radio stays in RX and every frame is logged by
+      // rfHandleReceived via the 'zehnder.rf' tag. Nothing else to do here.
+      break;
 
     default:
       break;
@@ -505,6 +517,11 @@ void ZehnderRF::rfHandleReceived(const uint8_t *const pData, const uint8_t dataL
       }
       break;
 
+    case StateSniffer:
+      // Passive capture: the decoded dump at the top of this function already logged the
+      // frame under the 'zehnder.rf' tag; nothing further to process.
+      break;
+
     default:
       ESP_LOGD(TAG, "Received frame from unknown device in unknown state; type 0x%02X from ID 0x%02X type 0x%02X",
                pResponse->command, pResponse->tx_id, pResponse->tx_type);
@@ -522,8 +539,32 @@ uint8_t ZehnderRF::createDeviceID(void) {
   return minmax(random, 1, 0xFE);
 }
 
-void ZehnderRF::queryDevice(void) {
-  RfFrame *const pFrame = (RfFrame *) this->_txFrame;  // frame helper
+void ZehnderRF::startSniffer(void) {
+  nrf905::Config rfConfig = this->rf_->getConfig();
+
+  // Prefer the paired fan network so we capture this unit's real traffic. If we were never
+  // paired, fall back to the linking network so at least pairing broadcasts are visible.
+  uint32_t network = this->config_.fan_networkId;
+  if (network == 0x00000000) {
+    network = NETWORK_LINK_ID;
+    ESP_LOGW(TAG, "Sniffer: no paired network stored; listening on link network 0x%08X", network);
+  } else {
+    ESP_LOGI(TAG, "Sniffer: listening on paired network 0x%08X", network);
+  }
+
+  rfConfig.rx_address = network;
+  this->rf_->updateConfig(&rfConfig);
+  this->rf_->writeTxAddress(network);
+
+  // Park the radio in receive mode. The nRF905 loop() will deliver every matching frame to
+  // rfHandleReceived, which logs it under the 'zehnder.rf' tag. We never transmit or poll.
+  this->rf_->setMode(nrf905::Receive);
+
+  ESP_LOGI(TAG, "RF sniffer mode active: passively logging all frames (no TX, no polling)");
+  this->state_ = StateSniffer;
+}
+
+void ZehnderRF::queryDevice(void) {  RfFrame *const pFrame = (RfFrame *) this->_txFrame;  // frame helper
 
   ESP_LOGD(TAG, "Query device");
 
