@@ -9,6 +9,10 @@ namespace zehnder {
 #define MAX_TRANSMIT_TIME 2000
 
 static const char *const TAG = "zehnder";
+// Dedicated tag for the raw RF frame sniffer so it can be isolated from the rest of the
+// state-machine chatter via the logger `logs:` config (e.g. set `zehnder.rf: DEBUG` while
+// keeping `zehnder: INFO`). See PR: protocol review / dump cross-checking.
+static const char *const TAG_RF = "zehnder.rf";
 
 typedef struct __attribute__((packed)) {
   uint32_t networkId;
@@ -282,9 +286,12 @@ void ZehnderRF::rfHandleReceived(const uint8_t *const pData, const uint8_t dataL
   RfFrame *const pTxFrame = (RfFrame *) this->_txFrame;  // frame helper
   nrf905::Config rfConfig;
 
-  // Dump the raw 16-byte frame at VERY_VERBOSE so real remote/CO2/timer traffic can be
-  // captured and cross-checked against the protocol spec while debugging (see issue for #5).
-  ESP_LOGVV(TAG, "RX raw frame [%u bytes]: %s", dataLength, format_hex_pretty(pData, dataLength).c_str());
+  // Decoded one-line dump of every received on-network frame, on a dedicated tag so it can be
+  // captured in isolation without enabling VERY_VERBOSE globally. Header fields plus the raw
+  // 16-byte payload, so it can be cross-checked against the protocol spec.
+  ESP_LOGD(TAG_RF, "RX rx=%02X:%02X tx=%02X:%02X ttl=%02X cmd=%02X n=%u | %s", pResponse->rx_type,
+           pResponse->rx_id, pResponse->tx_type, pResponse->tx_id, pResponse->ttl, pResponse->command,
+           pResponse->parameter_count, format_hex_pretty(pData, dataLength).c_str());
 
   ESP_LOGD(TAG, "Current state: 0x%02X", this->state_);
   switch (this->state_) {
