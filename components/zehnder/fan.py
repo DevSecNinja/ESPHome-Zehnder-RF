@@ -10,11 +10,13 @@ from . import zehnder_ns, ZehnderRF
 DEPENDENCIES = ["nrf905"]
 
 CONF_NRF905 = "nrf905"
+CONF_SNIFFER_MODE = "sniffer_mode"
 
 CONFIG_SCHEMA = fan.fan_schema(ZehnderRF).extend(
     {
         cv.Required(CONF_NRF905): cv.use_id(nRF905Component),
         cv.Optional(CONF_UPDATE_INTERVAL, default="30s"): cv.update_interval,
+        cv.Optional(CONF_SNIFFER_MODE, default=False): cv.boolean,
     }
 ).extend(cv.COMPONENT_SCHEMA)
 
@@ -28,3 +30,4 @@ async def to_code(config):
     cg.add(var.set_rf(nrf905))
 
     cg.add(var.set_update_interval(config[CONF_UPDATE_INTERVAL]))
+    cg.add(var.set_sniffer_mode(config[CONF_SNIFFER_MODE]))

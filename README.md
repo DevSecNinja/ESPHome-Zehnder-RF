@@ -10,6 +10,13 @@ I'm using an ESP32 board with an nRF905 antenna to control a Zehnder ComfoFan S.
 
 There are a bunch of known issues either related to the base program, the fork or my config. I'll keep them documented under the issues section.
 
+### Debugging RF traffic
+
+To passively capture and cross-check the raw RF frames on your fan network (e.g. to see a
+CO2 sensor overriding a manual speed), see the
+[RF frame capture guide](docs/capturing-rf-frames.md). You can share a capture via the
+**📡 RF frame capture** issue template.
+
 
 ## Configuration
 

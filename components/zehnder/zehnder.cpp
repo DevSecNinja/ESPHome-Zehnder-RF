@@ -1,5 +1,6 @@
 #include "zehnder.h"
 #include "esphome/core/log.h"
+#include "esphome/core/helpers.h"
 #include "esphome/core/application.h"
 
 namespace esphome {
@@ -8,6 +9,10 @@ namespace zehnder {
 #define MAX_TRANSMIT_TIME 2000
 
 static const char *const TAG = "zehnder";
+// Dedicated tag for the raw RF frame sniffer so it can be isolated from the rest of the
+// state-machine chatter via the logger `logs:` config (e.g. set `zehnder.rf: DEBUG` while
+// keeping `zehnder: INFO`). See PR: protocol review / dump cross-checking.
+static const char *const TAG_RF = "zehnder.rf";
 
 typedef struct __attribute__((packed)) {
   uint32_t networkId;
@@ -22,14 +27,19 @@ typedef struct __attribute__((packed)) {
 } RfPayloadNetworkJoinAck;
 
 typedef struct __attribute__((packed)) {
-  uint8_t speed;
-  uint8_t voltage;
-  uint8_t timer;
+  uint8_t speed;    // 0x0B Current speed preset (0x01: low, 0x02: medium, 0x03: high, 0x04: max)
+  uint8_t voltage;  // 0x0C Current fan voltage (0x00-0x64 => 0.0-10.0V)
+  uint8_t flags;    // 0x0D Flag byte; bit0: timer active (0=off after Set speed, 1=on after Set timer)
+  // NOTE: offset 0x0E (unit type / firmware, unknown) is not parsed here.
 } RfPayloadFanSettings;
 
 typedef struct __attribute__((packed)) {
   uint8_t speed;
 } RfPayloadFanSetSpeed;
+
+typedef struct __attribute__((packed)) {
+  uint8_t voltage;  // Fan voltage as percentage (0x00-0x64 => 0.0-10.0V)
+} RfPayloadFanSetVoltage;
 
 typedef struct __attribute__((packed)) {
   uint8_t speed;
@@ -48,6 +58,7 @@ typedef struct __attribute__((packed)) {
   union {
     uint8_t parameters[9];                           // 0x07 - 0x0F Depends on command
     RfPayloadFanSetSpeed setSpeed;                   // Command 0x02
+    RfPayloadFanSetVoltage setVoltage;               // Command 0x01
     RfPayloadFanSetTimer setTimer;                   // Command 0x03
     RfPayloadNetworkJoinRequest networkJoinRequest;  // Command 0x04
     RfPayloadNetworkJoinOpen networkJoinOpen;        // Command 0x06
@@ -67,18 +78,17 @@ static uint8_t minmax(const uint8_t value, const uint8_t min, const uint8_t max)
 }
 
 static int clamp_voltage(const int value) {
-  // Clamp voltage values to reasonable percentage range (0-100%)
-  // This prevents invalid/corrupted RF data from causing extreme percentage values
-  // in Home Assistant (e.g., ±1.5 billion % as reported in issue #18)
-  if (value < 0) {
-    ESP_LOGW(TAG, "Invalid voltage value %i clamped to 0", value);
-    return 0;
-  } else if (value > 100) {
-    ESP_LOGW(TAG, "Invalid voltage value %i clamped to 100", value);
+  // Per the protocol spec the fan voltage byte only uses bits 0-6 (0-127 => 0.0-12.7V);
+  // bit 7 (MSB) is ignored by the fan. Mask it off first so a stray high bit can't produce
+  // a garbage percentage (e.g. the huge values reported in issue #18).
+  int v = value & 0x7F;
+
+  // The ComfoFan caps its output at ~10.5V, so anything above 100% is reported as 100%.
+  if (v > 100) {
+    ESP_LOGW(TAG, "Voltage value %i (masked from %i) clamped to 100", v, value);
     return 100;
-  } else {
-    return value;
   }
+  return v;
 }
 
 ZehnderRF::ZehnderRF(void) {}
@@ -179,6 +189,7 @@ void ZehnderRF::setup() {
 void ZehnderRF::dump_config(void) {
   ESP_LOGCONFIG(TAG, "Zehnder Fan config:");
   ESP_LOGCONFIG(TAG, "  Polling interval   %u", this->interval_);
+  ESP_LOGCONFIG(TAG, "  Sniffer mode       %s", this->sniffer_mode_ ? "ON (passive capture, no control)" : "off");
   ESP_LOGCONFIG(TAG, "  Fan networkId      0x%08X", this->config_.fan_networkId);
   ESP_LOGCONFIG(TAG, "  Fan my device type 0x%02X", this->config_.fan_my_device_type);
   ESP_LOGCONFIG(TAG, "  Fan my device id   0x%02X", this->config_.fan_my_device_id);
@@ -214,6 +225,12 @@ void ZehnderRF::loop(void) {
     case StateStartup:
       // Wait until started up
       if (millis() > 15000) {
+        // Sniffer mode: skip pairing/polling entirely and just listen.
+        if (this->sniffer_mode_) {
+          this->startSniffer();
+          break;
+        }
+
         // Discovery?
         if ((this->config_.fan_networkId == 0x00000000) || (this->config_.fan_my_device_type == 0) ||
             (this->config_.fan_my_device_id == 0) || (this->config_.fan_main_unit_type == 0) ||
@@ -245,7 +262,11 @@ void ZehnderRF::loop(void) {
 
     case StateIdle:
       if (newSetting == true) {
-        this->setSpeed(newSpeed, newTimer);
+        if (this->newSpeedIsVoltage) {
+          this->setVoltage(this->newVoltage);
+        } else {
+          this->setSpeed(newSpeed, newTimer);
+        }
       } else {
         if ((millis() - this->lastFanQuery_) > this->interval_) {
           this->queryDevice();
@@ -262,6 +283,11 @@ void ZehnderRF::loop(void) {
         this->state_ = StateIdle;
       }
 
+    case StateSniffer:
+      // Passive capture only: the radio stays in RX and every frame is logged by
+      // rfHandleReceived via the 'zehnder.rf' tag. Nothing else to do here.
+      break;
+
     default:
       break;
   }
@@ -271,6 +297,13 @@ void ZehnderRF::rfHandleReceived(const uint8_t *const pData, const uint8_t dataL
   const RfFrame *const pResponse = (RfFrame *) pData;
   RfFrame *const pTxFrame = (RfFrame *) this->_txFrame;  // frame helper
   nrf905::Config rfConfig;
+
+  // Decoded one-line dump of every received on-network frame, on a dedicated tag so it can be
+  // captured in isolation without enabling VERY_VERBOSE globally. Header fields plus the raw
+  // 16-byte payload, so it can be cross-checked against the protocol spec.
+  ESP_LOGD(TAG_RF, "RX rx=%02X:%02X tx=%02X:%02X ttl=%02X cmd=%02X n=%u | %s", pResponse->rx_type,
+           pResponse->rx_id, pResponse->tx_type, pResponse->tx_id, pResponse->ttl, pResponse->command,
+           pResponse->parameter_count, format_hex_pretty(pData, dataLength).c_str());
 
   ESP_LOGD(TAG, "Current state: 0x%02X", this->state_);
   switch (this->state_) {
@@ -406,13 +439,13 @@ void ZehnderRF::rfHandleReceived(const uint8_t *const pData, const uint8_t dataL
           case FAN_TYPE_FAN_SETTINGS:
             ESP_LOGD(TAG, "Received fan settings; speed: 0x%02X voltage: %i timer: %i",
                      pResponse->payload.fanSettings.speed, pResponse->payload.fanSettings.voltage,
-                     pResponse->payload.fanSettings.timer);
+                     pResponse->payload.fanSettings.flags & 0x01);
 
             this->rfComplete();
 
             this->state = pResponse->payload.fanSettings.speed > 0;
             this->speed = pResponse->payload.fanSettings.speed;
-            this->timer = pResponse->payload.fanSettings.timer;
+            this->timer = (pResponse->payload.fanSettings.flags & 0x01) != 0;
             this->voltage = clamp_voltage(pResponse->payload.fanSettings.voltage);
             this->publish_state();
 
@@ -437,15 +470,13 @@ void ZehnderRF::rfHandleReceived(const uint8_t *const pData, const uint8_t dataL
           case FAN_TYPE_FAN_SETTINGS:
             ESP_LOGD(TAG, "Received fan settings; speed: 0x%02X voltage: %i timer: %i",
                      pResponse->payload.fanSettings.speed, pResponse->payload.fanSettings.voltage,
-                     pResponse->payload.fanSettings.timer);
-            // No idea why we need to commit twice, but got it from TimelessNL b4ae8c4
-            this->rfComplete();
+                     pResponse->payload.fanSettings.flags & 0x01);
 
             this->rfComplete();
 
             this->state = pResponse->payload.fanSettings.speed > 0;
             this->speed = pResponse->payload.fanSettings.speed;
-            this->timer = pResponse->payload.fanSettings.timer;
+            this->timer = (pResponse->payload.fanSettings.flags & 0x01) != 0;
             this->voltage = clamp_voltage(pResponse->payload.fanSettings.voltage);
             this->publish_state();
 
@@ -486,6 +517,11 @@ void ZehnderRF::rfHandleReceived(const uint8_t *const pData, const uint8_t dataL
       }
       break;
 
+    case StateSniffer:
+      // Passive capture: the decoded dump at the top of this function already logged the
+      // frame under the 'zehnder.rf' tag; nothing further to process.
+      break;
+
     default:
       ESP_LOGD(TAG, "Received frame from unknown device in unknown state; type 0x%02X from ID 0x%02X type 0x%02X",
                pResponse->command, pResponse->tx_id, pResponse->tx_type);
@@ -503,8 +539,32 @@ uint8_t ZehnderRF::createDeviceID(void) {
   return minmax(random, 1, 0xFE);
 }
 
-void ZehnderRF::queryDevice(void) {
-  RfFrame *const pFrame = (RfFrame *) this->_txFrame;  // frame helper
+void ZehnderRF::startSniffer(void) {
+  nrf905::Config rfConfig = this->rf_->getConfig();
+
+  // Prefer the paired fan network so we capture this unit's real traffic. If we were never
+  // paired, fall back to the linking network so at least pairing broadcasts are visible.
+  uint32_t network = this->config_.fan_networkId;
+  if (network == 0x00000000) {
+    network = NETWORK_LINK_ID;
+    ESP_LOGW(TAG, "Sniffer: no paired network stored; listening on link network 0x%08X", network);
+  } else {
+    ESP_LOGI(TAG, "Sniffer: listening on paired network 0x%08X", network);
+  }
+
+  rfConfig.rx_address = network;
+  this->rf_->updateConfig(&rfConfig);
+  this->rf_->writeTxAddress(network);
+
+  // Park the radio in receive mode. The nRF905 loop() will deliver every matching frame to
+  // rfHandleReceived, which logs it under the 'zehnder.rf' tag. We never transmit or poll.
+  this->rf_->setMode(nrf905::Receive);
+
+  ESP_LOGI(TAG, "RF sniffer mode active: passively logging all frames (no TX, no polling)");
+  this->state_ = StateSniffer;
+}
+
+void ZehnderRF::queryDevice(void) {  RfFrame *const pFrame = (RfFrame *) this->_txFrame;  // frame helper
 
   ESP_LOGD(TAG, "Query device");
 
@@ -563,7 +623,18 @@ void ZehnderRF::setSpeed(const uint8_t paramSpeed, const uint8_t paramTimer) {
       pFrame->payload.setTimer.timer = timer;
     }
     else if (timer == 0) {
-      pFrame->tx_type = FAN_TYPE_CO2_SENSOR;
+      // Manual fixed-speed request (no timer).
+      //
+      // Previously this transmitted as a CO2 sensor (FAN_TYPE_CO2_SENSOR). That put our
+      // command in the same arbitration "bucket" as the real CO2 sensor, so the sensor's
+      // periodic Set speed frames would immediately override our setting (see issue: manual
+      // set speed never sticks while a CO2 sensor is present).
+      //
+      // Instead we now transmit as the device we actually paired as (fan_my_device_type,
+      // i.e. an RFZ remote control, 0x03). This is the standard manual controller and also
+      // makes the fan's 0x07 reply addressable back to us (its rx_type/rx_id then match our
+      // own type/id), fixing the reply-address mismatch that could flap the health sensor.
+      pFrame->tx_type = this->config_.fan_my_device_type;
       pFrame->command = FAN_FRAME_SETSPEED;
       pFrame->parameter_count = sizeof(RfPayloadFanSetSpeed);
       pFrame->payload.setSpeed.speed = speed;
@@ -587,6 +658,43 @@ void ZehnderRF::setSpeed(const uint8_t paramSpeed, const uint8_t paramTimer) {
     ESP_LOGD(TAG, "Invalid state for speed setting, will retry later");
     newSpeed = speed;
     newTimer = timer;
+    newSpeedIsVoltage = false;
+    newSetting = true;
+  }
+}
+
+void ZehnderRF::setVoltage(const uint8_t percentage) {
+  RfFrame *const pFrame = (RfFrame *) this->_txFrame;  // frame helper
+  uint8_t voltage = percentage > 100 ? 100 : percentage;
+
+  ESP_LOGI(TAG, "Set voltage: %u%%", voltage);
+
+  if (this->state_ == StateIdle) {
+    (void) memset(this->_txFrame, 0, FAN_FRAMESIZE);  // Clear frame data
+
+    // Build frame - command 0x01 (Set voltage) for fine-grained percentage control.
+    // Transmit as the device we paired as (RFZ remote control), consistent with setSpeed.
+    pFrame->rx_type = this->config_.fan_main_unit_type;
+    pFrame->rx_id = 0x00;  // Broadcast to all fans
+    pFrame->tx_type = this->config_.fan_my_device_type;
+    pFrame->tx_id = this->config_.fan_my_device_id;
+    pFrame->ttl = FAN_TTL;
+    pFrame->command = FAN_FRAME_SETVOLTAGE;
+    pFrame->parameter_count = sizeof(RfPayloadFanSetVoltage);
+    pFrame->payload.setVoltage.voltage = voltage;
+
+    this->startTransmit(this->_txFrame, FAN_TX_RETRIES, [this]() {
+      ESP_LOGW(TAG, "Set voltage timeout, returning to idle state");
+      this->update_connection_status(false);
+      this->state_ = StateIdle;
+    });
+
+    newSetting = false;
+    this->state_ = StateWaitSetSpeedResponse;
+  } else {
+    ESP_LOGD(TAG, "Invalid state for voltage setting, will retry later");
+    newVoltage = voltage;
+    newSpeedIsVoltage = true;
     newSetting = true;
   }
 }

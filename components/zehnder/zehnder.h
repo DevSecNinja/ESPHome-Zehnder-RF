@@ -14,7 +14,7 @@ namespace zehnder {
 #define FAN_TX_FRAMES 4         // Retransmit every transmitted frame 4 times
 #define FAN_TX_RETRIES 10       // Retry transmission 10 times if no reply is received
 #define FAN_TTL 250             // 0xFA, default time-to-live for a frame
-#define FAN_REPLY_TIMEOUT 1000  // Wait 500ms for receiving a reply when doing a network scan
+#define FAN_REPLY_TIMEOUT 1000  // Wait 1000ms for receiving a reply when doing a network scan
 
 /* Fan device types */
 // Ref: https://github.com/eelcohn/ZehnderComfoair#transmitter-and-receiver-types
@@ -69,6 +69,10 @@ class ZehnderRF : public Component, public fan::Fan {
 
   void set_update_interval(const uint32_t interval) { interval_ = interval; }
 
+  // When enabled, the component does not pair, poll or transmit. It parks the nRF905 in
+  // receive mode and logs every frame heard on the fan network (see the RF capture guide).
+  void set_sniffer_mode(const bool enable) { sniffer_mode_ = enable; }
+
   void dump_config() override;
   void set_config(const uint32_t fan_networkId,
                   const uint8_t  fan_my_device_type,
@@ -87,6 +91,10 @@ class ZehnderRF : public Component, public fan::Fan {
 
   void setSpeed(const uint8_t speed, const uint8_t timer = 0);
 
+  // Set an explicit fan voltage (0-100%) using command 0x01 (Set voltage).
+  // Unlike setSpeed presets, this gives fine-grained percentage control.
+  void setVoltage(const uint8_t percentage);
+
   bool timer;
   int voltage;
 
@@ -95,6 +103,7 @@ class ZehnderRF : public Component, public fan::Fan {
 
  protected:
   void queryDevice(void);
+  void startSniffer(void);
 
   uint8_t createDeviceID(void);
   void discoveryStart(const uint8_t deviceId);
@@ -117,6 +126,8 @@ class ZehnderRF : public Component, public fan::Fan {
     StateWaitSetSpeedResponse,
     StateWaitSetSpeedConfirm,
 
+    StateSniffer,  // Passive capture: radio parked in RX, no TX/polling
+
     StateNrOf  // Keep last
   } State;
   State state_{StateStartup};
@@ -124,6 +135,7 @@ class ZehnderRF : public Component, public fan::Fan {
 
   nrf905::nRF905 *rf_;
   uint32_t interval_;
+  bool sniffer_mode_{false};
 
   uint8_t _txFrame[FAN_FRAMESIZE];
 
@@ -147,6 +159,8 @@ class ZehnderRF : public Component, public fan::Fan {
 
   uint8_t newSpeed{0};
   uint8_t newTimer{0};
+  uint8_t newVoltage{0};
+  bool newSpeedIsVoltage{false};
   bool newSetting{false};
 
   typedef enum {

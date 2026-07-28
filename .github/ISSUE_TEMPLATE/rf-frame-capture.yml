@@ -1,0 +1,92 @@
+name: "📡 RF frame capture"
+description: "Share a sniffer-mode capture of your Zehnder/ComfoFan RF traffic for protocol cross-checking"
+title: "[RF capture]: "
+labels: ["rf-capture"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for helping improve the protocol support! This template is for sharing raw RF
+        frames captured with **sniffer mode**.
+
+        Please read the [RF frame capture guide](https://github.com/DevSecNinja/ESPHome-Zehnder-RF/blob/main/docs/capturing-rf-frames.md)
+        first — it explains how to enable sniffer mode, filter the logs to the `zehnder.rf`
+        tag, and what each field means.
+
+  - type: input
+    id: fan-model
+    attributes:
+      label: Zehnder / ComfoFan model
+      description: The exact ventilation unit model.
+      placeholder: "e.g. ComfoFan S / ComfoFan CFMe R / StorkAir WHR"
+    validations:
+      required: true
+
+  - type: input
+    id: devices
+    attributes:
+      label: Connected RF devices
+      description: Which remotes / sensors are paired to this unit?
+      placeholder: "e.g. 1x CO2 RF sensor, 1x Timer RF remote, 1x RFZ wall remote"
+    validations:
+      required: false
+
+  - type: textarea
+    id: goal
+    attributes:
+      label: What are you trying to achieve or debug?
+      description: What behaviour are you seeing, and what did you expect?
+      placeholder: "e.g. Setting a fixed 50% speed does not stick — the CO2 sensor overrides it after a few seconds."
+    validations:
+      required: true
+
+  - type: textarea
+    id: actions
+    attributes:
+      label: Annotated timeline of actions
+      description: >
+        List what you did and roughly when, so the frames can be correlated to actions.
+        See section 4 of the capture guide.
+      placeholder: |
+        15:42 pressed "medium" on the wall remote
+        15:45 opened a window; CO2 climbed and the sensor bumped the speed
+        15:47 called setSpeed(2, 0) from Home Assistant
+        15:50 pressed the 30-minute timer button on the timer remote
+      render: text
+    validations:
+      required: true
+
+  - type: textarea
+    id: frames
+    attributes:
+      label: Captured frames (zehnder.rf tag)
+      description: >
+        Paste the `zehnder.rf` log lines here, or attach the captured file by dragging it
+        into this box. Do NOT paste your full VERY_VERBOSE log — only the frame lines.
+      placeholder: |
+        [D][zehnder.rf]: RX rx=01:00 tx=18:2A ttl=FA cmd=02 n=01 | A5.5A.5A.A5.01.00.18.2A.FA.02.01.02.00.00.00.00 (16)
+        [D][zehnder.rf]: RX rx=03:2A tx=01:14 ttl=FA cmd=07 n=04 | ...
+      render: text
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: Component version / branch
+      description: Which `external_components` ref did you build from?
+      placeholder: "e.g. devsecninja/fix-co2-override-and-protocol-review, or a commit SHA"
+    validations:
+      required: false
+
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Checklist
+      options:
+        - label: I captured these frames in **sniffer mode** (passive, read-only).
+          required: false
+        - label: I filtered the log to the `zehnder.rf` tag (no unrelated noise / secrets).
+          required: true
+        - label: I included an annotated timeline of what I did.
+          required: true
