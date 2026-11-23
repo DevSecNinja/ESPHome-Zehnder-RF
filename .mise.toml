@@ -1,0 +1,8 @@
+# Tools for the Secret scan workflow, which runs the central gitleaks
+# history scan (DevSecNinja/.github lint-include.yml) from this pin.
+# Renovate keeps the versions current.
+# renovate: datasource=github-releases depName=jdx/mise
+min_version = "2026.11.9"
+
+[tools]
+gitleaks = "8.30.1"
